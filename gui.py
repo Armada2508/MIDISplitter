@@ -3,7 +3,6 @@ import tkinter.filedialog
 import tkinter.font
 import midi_parser as mp
 import constants as c
-import threading
 
 class Interface(tk.Frame):
 	"""The main interface of the application"""

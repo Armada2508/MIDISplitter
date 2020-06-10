@@ -1,7 +1,6 @@
 import mido
 from mido import Message, MidiFile, MidiTrack
 import constants as c
-import numbers
 
 def parse(input_file, output_file, velocity):
 
