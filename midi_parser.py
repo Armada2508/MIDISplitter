@@ -2,7 +2,7 @@ import mido
 from mido import Message, MidiFile, MidiTrack
 import constants as c
 
-def parse(input_file, output_file, velocity):
+def parse(input_file, output_file, velocity, margin):
 
 	# =====================
 	#    Initialization
@@ -35,6 +35,25 @@ def parse(input_file, output_file, velocity):
 	if(new_velocity < 1 or new_velocity > 127):
 		new_velocity = -1
 
+	# Set the tempo to a default of 120bpm
+	tempo = mido.bpm2tempo(120)
+
+	# See if there is a set_tempo meta message
+	# TODO Store changing tempo
+	for track in input_song.tracks:
+		for msg in track:
+			if(msg.is_meta and msg.type == "set_tempo"):
+				tempo = msg.value
+	
+	# Create a clipping margin variable
+	clipping_margin = 0
+	
+	try:
+		# See if the user has input an integer
+		clipping_margin = int(margin)
+	except:
+		pass
+
 	# ==========================
 	#     Loop Through Tracks
 	# ==========================
@@ -52,7 +71,7 @@ def parse(input_file, output_file, velocity):
 		meta_messages = [msg for msg in track if msg.is_meta]
 
 		# Create a time variable for storing absolute time and set it to 0
-		tickTime = 0
+		tick_time = 0
 
 		# Create a new empty list inside the main list for all tracks to append notes to
 		track_meta.append([])
@@ -100,12 +119,12 @@ def parse(input_file, output_file, velocity):
 				off = False
 
 			# If there is a change in time then add that to the absolute time
-			tickTime += msg.time
+			tick_time += msg.time
 			# If this is a note on message
 			if(msg.type == "note_on"):
 				if(msg.velocity != 0):
-					# Create a new entry in the form of [TIME ON, TIME OFF, NOTE, VELOCITY]
-					track_notes[i].append([tickTime, None, msg.note, msg.velocity])
+					# Create a new entry with the format of [TIME ON, TIME OFF, NOTE, VELOCITY, ALIGNED, TRACK INDEX]
+					track_notes[i].append([tick_time, None, msg.note, msg.velocity])
 				else:
 					# Loop through the notes list backwards
 					for j in reversed(range(len(track_notes[i]))):
@@ -114,7 +133,7 @@ def parse(input_file, output_file, velocity):
 						# Check if there is a note that is the same note and doesn't end yet
 						if(track_notes[i][j][2] == msg.note and track_notes[i][j][1] == None):
 							# Add the current time as its end time
-							track_notes[i][j][1] = tickTime
+							track_notes[i][j][1] = tick_time
 			# If this is a note off message and sustain is not active
 			if(msg.type == "note_off" and not sustain):
 				# Loop through the notes list backwards
@@ -124,7 +143,7 @@ def parse(input_file, output_file, velocity):
 					# Check if there is a note that is the same note and doesn't end yet
 					if(track_notes[i][j][2] == msg.note and track_notes[i][j][1] == None):
 						# Add the current time as its end time
-						track_notes[i][j][1] = tickTime
+						track_notes[i][j][1] = tick_time
 			# If this message is a controller change
 			if(msg.type == "control_change"):
 				# If it is a sustain message
@@ -163,7 +182,7 @@ def parse(input_file, output_file, velocity):
 				# Loop through them
 				for note in notes_on:
 					# Set their end time to now
-					note[1] = tickTime
+					note[1] = tick_time
 
 			# If sostenuto has been released
 			if(sostenuto_last and not sostenuto):
@@ -174,7 +193,7 @@ def parse(input_file, output_file, velocity):
 						# If they have the same pitch and the note has no end time
 						if(note[2] == sostenuto_note and note[1] == None):
 							# Set its end time to now
-							note[1] = tickTime
+							note[1] = tick_time
 
 			# If there is an all notes off message
 			if(off):
@@ -183,7 +202,7 @@ def parse(input_file, output_file, velocity):
 					# If the note doesn't have an end time
 					if(note[1] == None):
 						# Set its end time to now
-						note[1] = tickTime
+						note[1] = tick_time
 				# Clear all sostenuto notes
 				sostenuto_notes.clear()
 				# Turn off sostenuto
@@ -201,6 +220,8 @@ def parse(input_file, output_file, velocity):
 		#    Note Processing
 		# =====================
 
+		# TODO: Implement clipping
+
 		# If there are any notes that have the same end and start time(0 duration), delete them
 		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
 
@@ -210,9 +231,14 @@ def parse(input_file, output_file, velocity):
 		# Re-sort the list
 		track_notes[i].sort(key=lambda e: e[0])
 
+		clipping_margin = mido.second2tick()
+
 		# ======================
 		#    Track Splitting
 		# ======================
+
+		# TODO: Add program messages with channels
+		# TODO: Implement different track order options(collated vs uncollated)
 
 		# Create a new list for new tracks
 		new_tracks = []
@@ -220,7 +246,7 @@ def parse(input_file, output_file, velocity):
 		# Iterate through all notes
 		for note in track_notes[i]:
 			# Update the time to the current note's start time
-			tickTime = note[0]
+			tick_time = note[0]
 
 			# Calculate the track index of the note
 			track_index = get_track_index(note, track_notes[i])
@@ -244,8 +270,8 @@ def parse(input_file, output_file, velocity):
 			# Add the track to the output file
 			output_song.tracks.append(finished_track)
 
-			# Re-use tickTime and set it to 0
-			tickTime = 0
+			# Re-use tick_time to represent absolute time and set it to 0
+			tick_time = 0
 
 			# Set the finished track name to the old track name with an index starting with 1
 			finished_track.name = track.name + " " + str(j + 1)
@@ -253,11 +279,11 @@ def parse(input_file, output_file, velocity):
 			# Loop through all of the notes in the new track
 			for note in new_track:
 				# Add a note_on message for the note
-				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tickTime)))
+				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time)))
 				# Add a note_off message for the note
 				finished_track.append(Message("note_off", note=note[2], velocity=0, time=(note[1] - note[0])))
 				# Set the absolute time to the last message added(the note_off message)
-				tickTime = note[1]
+				tick_time = note[1]
 
 	# Save the song
 	output_song.save(output_file)
@@ -279,6 +305,7 @@ def get_notes_above(note, notes):
 
 # Get the track index of a note
 def get_track_index(note, notes):
+	# TODO: Store track index in note
 	# Get the notes above this note
 	notes_above = get_notes_above(note, notes)
 	# Default the track index to 0

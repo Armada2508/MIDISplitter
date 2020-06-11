@@ -50,13 +50,15 @@ class Interface(tk.Frame):
 
 	# Create the main gui with widgets
 	def create_gui(self):
+		# TODO: Add completion indicator
+		# TODO: Add track split method option
 		# Initialize Frame objects for containing widgets
 		self.info = tk.Frame(self.master, width=0, height=80)
 		self.input = tk.Frame(self.master, width=0, height=80)
 		self.output = tk.Frame(self.master, width=0, height=80)
 		self.options = tk.Frame(self.master, width=0, height=80)
 		self.velocity = tk.Frame(self.options, width=0, height=0)
-		self.clipping = tk.Frame(self.options, width=0, height=0)
+		self.aligning = tk.Frame(self.options, width=0, height=0)
 		self.convert = tk.Frame(self.master, width=0, height=100)
 		# Create the main title
 		self.title = tk.Label(self.info, text="MIDI Splitter", font=self.font_large, justify="center", width=10, border=0)
@@ -69,15 +71,15 @@ class Interface(tk.Frame):
 		self.input_file = tk.StringVar()
 		self.output_file = tk.StringVar()
 		self.note_velocity = tk.StringVar()
-		self.clipping_margin = tk.StringVar()
+		self.aligning_margin = tk.StringVar()
 		# Create entries for files and options
 		self.input_file_entry = tk.Entry(self.input, font=self.font_small, justify="center", textvariable=self.input_file)
 		self.output_file_entry = tk.Entry(self.output, font=self.font_small, justify="center", textvariable=self.output_file)
 		self.velocity_entry = tk.Entry(self.velocity, font=self.font_small, justify="center", textvariable=self.note_velocity)
-		self.clipping_entry = tk.Entry(self.clipping, font=self.font_small, justify="center", textvariable=self.clipping_margin)
+		self.aligning_entry = tk.Entry(self.aligning, font=self.font_small, justify="center", textvariable=self.aligning_margin)
 		# Create labels for options
-		self.velocity_label = tk.Label(self.velocity, font=self.font_small, text="Change All Note Velocity(Volume, 1-127)")
-		self.clipping_label = tk.Label(self.clipping, font=self.font_small, text="Note Clipping Margin(seconds)")
+		self.velocity_label = tk.Label(self.velocity, font=self.font_small, text="Change All Note Velocity(1-127)")
+		self.aligning_label = tk.Label(self.aligning, font=self.font_small, text="Note Aligning Margin(seconds)")
 		# Resize frames if not big enough to hold widgets
 		self.info.pack_propagate(0)
 		self.input.pack_propagate(0)
@@ -85,12 +87,12 @@ class Interface(tk.Frame):
 		self.convert.pack_propagate(0)
 		self.options.pack_propagate(0)
 		self.velocity.pack_propagate(0)
-		self.clipping.pack_propagate(0)
+		self.aligning.pack_propagate(0)
 		# Pack all of the Frames
 		self.convert.pack(side=tk.BOTTOM, expand=1, fill='both')
 		self.options.pack(side=tk.BOTTOM, expand=1, fill='both')
 		self.velocity.pack(side=tk.LEFT, expand=1, fill='both')
-		self.clipping.pack(side=tk.RIGHT, expand=1, fill='both')
+		self.aligning.pack(side=tk.RIGHT, expand=1, fill='both')
 		self.info.pack(side=tk.TOP, expand=1, fill='both')
 		self.input.pack(side=tk.LEFT, expand=1, fill='both')
 		self.output.pack(side=tk.RIGHT, expand=1, fill='both')
@@ -106,8 +108,8 @@ class Interface(tk.Frame):
 		# Pack the options
 		self.velocity_label.pack(side=tk.TOP, pady=(10, 0))
 		self.velocity_entry.pack(side=tk.BOTTOM, pady=(0, 10))
-		self.clipping_label.pack(side=tk.TOP, pady=(10, 0))
-		self.clipping_entry.pack(side=tk.BOTTOM, pady=(0, 10))
+		self.aligning_label.pack(side=tk.TOP, pady=(10, 0))
+		self.aligning_entry.pack(side=tk.BOTTOM, pady=(0, 10))
 
 	def convert_song(self):
 		# Parse the file
