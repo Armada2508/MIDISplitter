@@ -252,8 +252,6 @@ def parse(input_file, output_file, velocity, align_margin):
 
 		# Loop through notes
 		for note in track_notes[i]:
-			# Find all overlapping notes
-			overlaps = find_overlaps_range(note[1] - alignment_margin, note[1] + alignment_margin, track_notes[i])
 			# Find the minimum time the note must begin/end at
 			min_time = note[1] - alignment_margin
 			# Find the maximum time the note must begin/end at
@@ -262,38 +260,45 @@ def parse(input_file, output_file, velocity, align_margin):
 			mean_time = 0
 			# Create a variable to store how many notes are within the margin
 			overlap_notes = 0
-			# Loop through the overlapping notes
-			for overlap in overlaps:
-				# If the note starts within the margin
+			# If the note's end has already been aligned
+			if(bool(note[4] & 0b01)):
+				# Skip the rest of the loop
+				continue
+			# Loop through all notes
+			for overlap in track_notes[i]:
+				# If the note starts within the margin and its start has not been aligned
 				if(overlap[0] >= min_time and overlap[0] <= max_time and not bool(overlap[4] & 0b10)):
 					# Add the note's time to the mean time
 					mean_time += overlap[0]
 					# Add one to the note count
 					overlap_notes += 1
-				# If the note ends within the margin
+				# If the note ends within the margin and its end has not been aligned
 				if(overlap[1] >= min_time and overlap[1] <= max_time and not bool(overlap[4] & 0b01)):
 					# Add the note's time to the mean time
 					mean_time += overlap[1]
 					# Add one to the note count
 					overlap_notes += 1
-			if(overlap_notes < 1):
+			# If is no other note
+			if(overlap_notes < 2):
+				# Skip the rest of the loop
 				continue
 			# Average the mean time
 			mean_time /= overlap_notes
-			# Loop through the overlapping notes
-			for overlap in overlaps:
-				# If the note starts within the margin
+			# Loop through all notes
+			for overlap in track_notes[i]:
+				# If the note starts within the margin and its start has not been aligned
 				if(overlap[0] >= min_time and overlap[0] <= max_time and not bool(overlap[4] & 0b10)):
 					# Set the note's time to the mean
 					overlap[0] = mean_time
 					# Turn the bit that signifies the start has been aligned on
 					overlap[4] = overlap[4] | 0b10
-				# If the note ends within the margin
+				# If the note ends within the margin and its end has not been aligned
 				if(overlap[1] >= min_time and overlap[1] <= max_time and not bool(overlap[4] & 0b01)):
 					# Set the note's time to the mean
 					overlap[1] = mean_time
 					# Turn the bit that signifies the end has been aligned on
 					overlap[4] = overlap[4] | 0b01
+			last_time = mean_time
 
 
 		# Convert the note time back to ticks
@@ -330,7 +335,6 @@ def parse(input_file, output_file, velocity, align_margin):
 		# ======================
 
 		for j, new_track in enumerate(new_tracks):
-			print(new_track)
 			# Create a new track to append to the MIDI file that will be exported
 			finished_track = mido.MidiTrack()
 
@@ -345,10 +349,6 @@ def parse(input_file, output_file, velocity, align_margin):
 
 			# Loop through all of the notes in the new track
 			for note in new_track:
-				if(note[0] - tick_time < 0):
-					print("ON: " + str(note) + ", " + str(tick_time))
-				if(note[1] - note[0] < 0):
-					print("OFF: " + str(note) + ", " + str(tick_time))
 				# Add a note_on message for the note
 				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time)))
 				# Add a note_off message for the note
