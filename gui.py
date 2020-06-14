@@ -1,12 +1,15 @@
+from os import path
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.font
+import tkinter.messagebox
 import midi_parser as mp
 import constants as c
 
 class Interface(tk.Frame):
 	"""The main interface of the application"""
 	def __init__(self):
+		# TODO: Categorize elements further(possibly add more descriptive names)
 		# Initialize the main window
 		self.master = tk.Tk()
 		super().__init__(self.master)
@@ -50,15 +53,16 @@ class Interface(tk.Frame):
 
 	# Create the main gui with widgets
 	def create_gui(self):
-		# TODO: Add completion indicator
-		# TODO: Add track split method option
+		# TODO: Categorize elements further(possibly add more descriptive names)
+		# TODO: Add additional classes for elements such as a container frame
 		# Initialize Frame objects for containing widgets
 		self.info = tk.Frame(self.master, width=0, height=80)
 		self.input = tk.Frame(self.master, width=0, height=80)
 		self.output = tk.Frame(self.master, width=0, height=80)
 		self.options = tk.Frame(self.master, width=0, height=80)
-		self.velocity = tk.Frame(self.options, width=0, height=0)
-		self.aligning = tk.Frame(self.options, width=0, height=0)
+		self.velocity = tk.Frame(self.options, width=80, height=0)
+		self.order = tk.Frame(self.options, width=10, height=0)
+		self.aligning = tk.Frame(self.options, width=80, height=0)
 		self.convert = tk.Frame(self.master, width=0, height=100)
 		# Create the main title
 		self.title = tk.Label(self.info, text="MIDI Splitter", font=self.font_large, justify="center", width=10, border=0)
@@ -72,27 +76,49 @@ class Interface(tk.Frame):
 		self.output_file = tk.StringVar()
 		self.note_velocity = tk.StringVar()
 		self.aligning_margin = tk.StringVar()
-		# Create entries for files and options
+		self.export_order = tk.StringVar()
+		# Set the default track export order method
+		self.export_order.set("Collated")
+		# Create entries for files
 		self.input_file_entry = tk.Entry(self.input, font=self.font_small, justify="center", textvariable=self.input_file)
 		self.output_file_entry = tk.Entry(self.output, font=self.font_small, justify="center", textvariable=self.output_file)
-		self.velocity_entry = tk.Entry(self.velocity, font=self.font_small, justify="center", textvariable=self.note_velocity)
-		self.aligning_entry = tk.Entry(self.aligning, font=self.font_small, justify="center", textvariable=self.aligning_margin)
+		# Color the entries based on if they are valid
+		self.input_file.trace('w', lambda *args: self.input_file_entry.config(bg=self.path_color(self.input_file.get(), False)))
+		self.output_file.trace('w', lambda *args: self.output_file_entry.config(bg=self.path_color(self.output_file.get(), True)))
+		self.note_velocity.trace('w', lambda *args: self.velocity_entry.config(bg=self.velocity_color(self.note_velocity.get())))
+		self.aligning_margin.trace('w', lambda *args: self.aligning_entry.config(bg=self.margin_color(self.aligning_margin.get())))
+		# Reset convert button if any options are changed
+		self.input_file.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.output_file.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.note_velocity.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.aligning_margin.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.export_order.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		# Create entries for options
+		self.velocity_entry = tk.Entry(self.velocity, font=self.font_small, justify="center", textvariable=self.note_velocity, width=10)
+		self.aligning_entry = tk.Entry(self.aligning, font=self.font_small, justify="center", textvariable=self.aligning_margin, width=10)
+		# Create dropdown for selecting track export order method
+		self.order_menu = tk.OptionMenu(self.order, self.export_order, "Collated", "Uncollated")
+		# Format menu
+		self.order_menu.config(font=self.font_small)
+		# Format items
+		self.order_menu_items = self.nametowidget(self.order_menu.menuname)
+		self.order_menu_items.config(font=self.font_small)
 		# Create labels for options
-		self.velocity_label = tk.Label(self.velocity, font=self.font_small, text="Change All Note Velocity(1-127)")
-		self.aligning_label = tk.Label(self.aligning, font=self.font_small, text="Note Aligning Margin(seconds)")
-		# Resize frames if not big enough to hold widgets
+		self.velocity_label = tk.Label(self.velocity, font=self.font_small, text="Set Note Velocity(1-127)")
+		self.aligning_label = tk.Label(self.aligning, font=self.font_small, text="Aligning Margin(seconds)")
+		self.order_label = tk.Label(self.order, font=self.font_small, text="Track Export Order")
+		# Don't resize frames if not big enough to hold widgets
 		self.info.pack_propagate(0)
 		self.input.pack_propagate(0)
 		self.output.pack_propagate(0)
 		self.convert.pack_propagate(0)
 		self.options.pack_propagate(0)
-		self.velocity.pack_propagate(0)
-		self.aligning.pack_propagate(0)
 		# Pack all of the Frames
 		self.convert.pack(side=tk.BOTTOM, expand=1, fill='both')
 		self.options.pack(side=tk.BOTTOM, expand=1, fill='both')
 		self.velocity.pack(side=tk.LEFT, expand=1, fill='both')
 		self.aligning.pack(side=tk.RIGHT, expand=1, fill='both')
+		self.order.pack(side=tk.RIGHT, expand=1, fill='both')
 		self.info.pack(side=tk.TOP, expand=1, fill='both')
 		self.input.pack(side=tk.LEFT, expand=1, fill='both')
 		self.output.pack(side=tk.RIGHT, expand=1, fill='both')
@@ -110,7 +136,38 @@ class Interface(tk.Frame):
 		self.velocity_entry.pack(side=tk.BOTTOM, pady=(0, 10))
 		self.aligning_label.pack(side=tk.TOP, pady=(10, 0))
 		self.aligning_entry.pack(side=tk.BOTTOM, pady=(0, 10))
+		self.order_label.pack(side=tk.TOP, pady=(10, 0))
+		self.order_menu.pack(side=tk.BOTTOM, pady=(0, 10))
 
 	def convert_song(self):
 		# Parse the file
-		mp.parse(self.input_file.get(), self.output_file.get(), self.note_velocity.get())
+		result = mp.parse(self.input_file.get(), self.output_file.get(), self.note_velocity.get(), self.aligning_margin.get())
+		self.convert_button.config(bg="green" if not isinstance(result, Exception) else "red")
+		if isinstance(result, Exception):
+			tkinter.messagebox.showerror(title="Conversion Error", message=result)
+	
+	def path_color(self, filepath, save):
+		# If we're saving the file
+		if(save):
+			# If the path is valid and it has the correct extension
+			return "green" if path.exists(path.dirname(filepath)) and (path.splitext(filepath)[-1].lower() == ".mid" or path.splitext(filepath)[-1].lower() == ".midi") else "red"
+		# Otherwise if we're trying to load the file just check if it exists
+		return "green" if path.exists(filepath) else "red"
+	
+	def velocity_color(self, value):
+		if(value == ""):
+			return "green"
+		try:
+			value = int(value)
+			return "green" if value < 128 and value > 0 else "red"
+		except:
+			return "red"
+	
+	def margin_color(self, value):
+		if(value == ""):
+			return "green"
+		try:
+			value = float(value)
+			return "green" if value >= 0 else "red"
+		except:
+			return "red"

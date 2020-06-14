@@ -1,23 +1,41 @@
 import mido
 from mido import Message, MidiFile, MidiTrack
 import constants as c
+from decimal import *
+import copy
+import traceback
 
-def parse(input_file, output_file, velocity, margin):
+def parse(input_file, output_file, velocity, align_margin):
+
+	# TODO: Extract parts of parse function into other functions
 
 	# =====================
 	#    Initialization
 	# =====================
 
-	# Check if the input or output file wasn't given
-	if(input_file == "" or output_file == ""):
-		return
+	# Check if the input file wasn't given
+	if(input_file == ""):
+		# If the input file weren't given, return an exception
+		return Exception("Input file not specified")
+		
+	# Check if the input file wasn't given
+	if(output_file == ""):
+		# If the input file weren't given, return an exception
+		return Exception("Output file not specified")
+
 
 	# Create lists for storing notes and meta messages
 	track_notes = []
 	track_meta = []
 
-	# Load the input MIDI file
-	input_song = mido.MidiFile(input_file)
+	# Try to load the input file
+	try:
+		# Load the input MIDI file
+		input_song = mido.MidiFile(input_file)
+	except Exception as err:
+		traceback.print_tb(err.__traceback__)
+		# If it couldn't be loaded, return an error
+		return Exception("Input file could not be loaded, try checking the input file path")
 
 	# Create a new MIDI file for the final song
 	output_song = mido.MidiFile(ticks_per_beat=input_song.ticks_per_beat)
@@ -35,22 +53,18 @@ def parse(input_file, output_file, velocity, margin):
 	if(new_velocity < 1 or new_velocity > 127):
 		new_velocity = -1
 
-	# Set the tempo to a default of 120bpm
-	tempo = mido.bpm2tempo(120)
+	# Create a dictionary to serve as a look up table for tempo
+	tempo_dict = {}
 
-	# See if there is a set_tempo meta message
-	# TODO Store changing tempo
-	for track in input_song.tracks:
-		for msg in track:
-			if(msg.is_meta and msg.type == "set_tempo"):
-				tempo = msg.value
-	
-	# Create a clipping margin variable
-	clipping_margin = 0
+	if(len(tempo_dict) == 0):
+		tempo_dict[0] = mido.bpm2tempo(120)
+
+	# Create a aligning margin variable
+	alignment_margin = 0
 	
 	try:
 		# See if the user has input an integer
-		clipping_margin = int(margin)
+		alignment_margin = float(align_margin)
 	except:
 		pass
 
@@ -63,9 +77,6 @@ def parse(input_file, output_file, velocity, margin):
 		# ==============================
 		#     Raw Message Extraction
 		# ==============================
-
-		# Store all note related messages in a list
-		note_messages = [msg for msg in track if msg.type == "note_on" or msg.type == "note_off" or msg.type == "control_change"]
 
 		# Store all meta messages in a list
 		meta_messages = [msg for msg in track if msg.is_meta]
@@ -82,18 +93,6 @@ def parse(input_file, output_file, velocity, margin):
 		for msg in meta_messages:
 			# Append the message to the meta list for this track
 			track_meta[i].append(msg)
-
-		# If this is just a meta track
-		if(len(note_messages) == 0):
-			# Create a new track
-			finished_track = mido.MidiTrack()
-			# Append the track to the output song
-			output_song.tracks.append(finished_track)
-			# Append all messages to the new track
-			for msg in track_meta[i]:
-				finished_track.append(msg)
-			# Skip everything below
-			continue
 
 		# ===========================
 		#     Convert Note Format
@@ -113,18 +112,26 @@ def parse(input_file, output_file, velocity, margin):
 		off = False
 
 		# Loop through all notes in the track
-		for j, msg in enumerate(note_messages):
+		for j, msg in enumerate(track):
+
 			# If this is the last message
-			if(j == len(note_messages) - 1):
+			if(j == len(track) - 1):
 				off = False
 
 			# If there is a change in time then add that to the absolute time
 			tick_time += msg.time
+
+			# If we found a set_tempo message
+			if(msg.is_meta and msg.type == "set_tempo"):
+				# Add it to the look up table
+				tempo_dict[msg.time] = msg.tempo
+				continue
+
 			# If this is a note on message
 			if(msg.type == "note_on"):
 				if(msg.velocity != 0):
 					# Create a new entry with the format of [TIME ON, TIME OFF, NOTE, VELOCITY, ALIGNED, TRACK INDEX]
-					track_notes[i].append([tick_time, None, msg.note, msg.velocity])
+					track_notes[i].append([tick_time, None, msg.note, msg.velocity, 0, None])
 				else:
 					# Loop through the notes list backwards
 					for j in reversed(range(len(track_notes[i]))):
@@ -216,11 +223,21 @@ def parse(input_file, output_file, velocity, margin):
 			# Turn the off flag off in case it was on
 			off = False
 
+		# If this is just a meta track
+		if(len(meta_messages) == len(track)):
+			# Create a new track
+			finished_track = mido.MidiTrack()
+			# Append the track to the output song
+			output_song.tracks.append(finished_track)
+			# Append all messages to the new track
+			for msg in track_meta[i]:
+				finished_track.append(msg)
+			# Skip everything below
+			continue
+
 		# =====================
 		#    Note Processing
 		# =====================
-
-		# TODO: Implement clipping
 
 		# If there are any notes that have the same end and start time(0 duration), delete them
 		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
@@ -228,26 +245,72 @@ def parse(input_file, output_file, velocity, margin):
 		# Remove duplicate notes
 		track_notes[i] = [list(t) for t in set(tuple(e) for e in track_notes[i])]
 
-		# Re-sort the list
-		track_notes[i].sort(key=lambda e: e[0])
+		# Convert the note time to second
+		track_notes[i] = tick2second(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 
-		clipping_margin = mido.second2tick()
+		track_notes[i].sort(key=lambda e: e[1])
+
+		# Loop through notes
+		for note in track_notes[i]:
+			# Find all overlapping notes
+			overlaps = find_overlaps_range(note[1] - alignment_margin, note[1] + alignment_margin, track_notes[i])
+			# Find the minimum time the note must begin/end at
+			min_time = note[1] - alignment_margin
+			# Find the maximum time the note must begin/end at
+			max_time = note[1] + alignment_margin
+			# Create a variable to store the mean time of all overlapping notes
+			mean_time = 0
+			# Create a variable to store how many notes are within the margin
+			overlap_notes = 0
+			# Loop through the overlapping notes
+			for overlap in overlaps:
+				# If the note starts within the margin
+				if(overlap[0] >= min_time and overlap[0] <= max_time and not bool(overlap[4] & 0b10)):
+					# Add the note's time to the mean time
+					mean_time += overlap[0]
+					# Add one to the note count
+					overlap_notes += 1
+				# If the note ends within the margin
+				if(overlap[1] >= min_time and overlap[1] <= max_time and not bool(overlap[4] & 0b01)):
+					# Add the note's time to the mean time
+					mean_time += overlap[1]
+					# Add one to the note count
+					overlap_notes += 1
+			if(overlap_notes < 1):
+				continue
+			# Average the mean time
+			mean_time /= overlap_notes
+			# Loop through the overlapping notes
+			for overlap in overlaps:
+				# If the note starts within the margin
+				if(overlap[0] >= min_time and overlap[0] <= max_time and not bool(overlap[4] & 0b10)):
+					# Set the note's time to the mean
+					overlap[0] = mean_time
+					# Turn the bit that signifies the start has been aligned on
+					overlap[4] = overlap[4] | 0b10
+				# If the note ends within the margin
+				if(overlap[1] >= min_time and overlap[1] <= max_time and not bool(overlap[4] & 0b01)):
+					# Set the note's time to the mean
+					overlap[1] = mean_time
+					# Turn the bit that signifies the end has been aligned on
+					overlap[4] = overlap[4] | 0b01
+
+
+		# Convert the note time back to ticks
+		track_notes[i] = second2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
+
+		# If there are any notes that have the same end and start time(0 duration), delete them
+		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
 
 		# ======================
 		#    Track Splitting
 		# ======================
-
-		# TODO: Add program messages with channels
-		# TODO: Implement different track order options(collated vs uncollated)
 
 		# Create a new list for new tracks
 		new_tracks = []
 
 		# Iterate through all notes
 		for note in track_notes[i]:
-			# Update the time to the current note's start time
-			tick_time = note[0]
-
 			# Calculate the track index of the note
 			track_index = get_track_index(note, track_notes[i])
 
@@ -258,12 +321,16 @@ def parse(input_file, output_file, velocity, margin):
 			# Add the note to its track
 			new_tracks[track_index].append(note)
 
+		# TODO: Add program messages with channels
+		# TODO: Implement different track order options(collated vs uncollated)
+		# TODO: Export tempo changes
 
 		# ======================
 		#      Track Output
 		# ======================
 
 		for j, new_track in enumerate(new_tracks):
+			print(new_track)
 			# Create a new track to append to the MIDI file that will be exported
 			finished_track = mido.MidiTrack()
 
@@ -278,6 +345,10 @@ def parse(input_file, output_file, velocity, margin):
 
 			# Loop through all of the notes in the new track
 			for note in new_track:
+				if(note[0] - tick_time < 0):
+					print("ON: " + str(note) + ", " + str(tick_time))
+				if(note[1] - note[0] < 0):
+					print("OFF: " + str(note) + ", " + str(tick_time))
 				# Add a note_on message for the note
 				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time)))
 				# Add a note_off message for the note
@@ -285,18 +356,31 @@ def parse(input_file, output_file, velocity, margin):
 				# Set the absolute time to the last message added(the note_off message)
 				tick_time = note[1]
 
-	# Save the song
-	output_song.save(output_file)
+	# Try to save the song
+	try:
+		# Save the song
+		output_song.save(output_file)
+		# If it saves, return true
+		return True
+	except Exception as err:
+		traceback.print_tb(err.__traceback__)
+		# If it fails to save, return an exception
+		return Exception("Could not save file, try checking the output file path")
 
 # Check if two notes overlap
-def check_overlap(note, check):
+def check_overlap(start, end, note):
 	# If the check note's endpoints are not both before and after the note, it must overlap
-	return not ((check[0] < note[0] and check[1] <= note[0]) or (check[0] >= note[1] and check[1] > note[1]))
+	return not ((start < note[0] and end <= note[0]) or (start >= note[1] and end > note[1]))
+
+# Find all overlapping notes
+def find_overlaps_range(start, end, notes):
+	# Return a list of notes that pass the check_overlap test
+	return list(filter(lambda e: check_overlap(start, end, e), notes))
 
 # Find all overlapping notes
 def find_overlaps(note, notes):
-	# Return a list of notes that pass the check_overlap test
-	return list(filter(lambda e: check_overlap(note, e), notes))
+	# Return a list of notes that overlap the given note
+	return find_overlaps_range(note[0], note[1], notes)
 
 # Find notes that overlap and are above the note
 def get_notes_above(note, notes):
@@ -305,7 +389,10 @@ def get_notes_above(note, notes):
 
 # Get the track index of a note
 def get_track_index(note, notes):
-	# TODO: Store track index in note
+	# If the note has a stored index
+	if(note[5] != None):
+		# Return it
+		return note[5]
 	# Get the notes above this note
 	notes_above = get_notes_above(note, notes)
 	# Default the track index to 0
@@ -314,14 +401,161 @@ def get_track_index(note, notes):
 	track_indices = []
 	# If there are no notes above this note
 	if(len(notes_above) == 0):
+		# Store the index in the note so we don't have to compute it again
+		note[5] = track_index
 		# It's track_index is 0
 		return track_index
 	# If there are notes above it, loop through them
-	for note in notes_above:
+	for note_above in notes_above:
 		# Check their track index and add it to the list
-		track_indices.append(get_track_index(note, notes))
+		track_indices.append(get_track_index(note_above, notes))
 	# Find the lowest number not in the list greater than 0
 	while track_index in track_indices:
 		track_index += 1
+	# Store the index in the note so we don't have to compute it again
+	note[5] = track_index
 	# Return it
 	return track_index
+
+# Find the tempo from a dictionary from the time in ticks
+def get_tempo(d, time, ticks_per_beat=0, seconds=False):
+	# Create a list to store the tempos at different times
+	tempos = []
+	# Loop through the tempos in the dictionary
+	for time in d:
+		# Add each tempo to the list
+		tempos.append([time, d[time]])
+	# If there are no items
+	if(len(tempos) == 0):
+		# Return 500000
+		return 500000
+	# If there is only one item
+	if(len(tempos) == 1):
+		# If we've passed the tempo
+		if(time >= tempos[0][0]):
+			# Return it
+			return tempos[0][1]
+		# Otherwise return the default 120 BPM
+		return 500000
+	# Sort the tempos by time
+	tempos.sort(key=lambda e: e[0])
+	# If time is in seconds and not ticks
+	if(seconds):
+		# If ticks_per_beat was not specified
+		if(ticks_per_beat == 0):
+			# Throw an error
+			raise Exception("Error: ticks_per_beat cannot be 0")
+		# Create a variable to store time in
+		total_time = 0
+		# Loop through the tempos
+		for i in range(0, len(tempos)):
+			# If this is the first loop iteration
+			if(i == 0):
+				# Assume the tempo is initially 120 BPM if it is not specified at the beginning
+				total_time += mido.tick2second(tempos[i][0], ticks_per_beat, 500000)
+			# Otherwise
+			else:
+				# Add the difference in time to the total time
+				total_time += mido.tick2second(tempos[i][0] - tempos[i - 1][0], ticks_per_beat, tempos[i - 1][1])
+			# Set the tempo's time to the calculated time
+			tempos[i][0] = total_time
+	# Loop through the tempos in the list
+	for i in range(0, len(tempos) - 1):
+		# If have passed this tempo but not the next tempo
+		if(time >= tempos[i][0] and time < tempos[i + 1][0]):
+			# Return it
+			return tempos[i][1]
+	# If we've passed all of them, return the last one
+	return tempos[len(tempos) - 1][1]
+
+def tick2second(input_notes, tempo_dict, ticks_per_beat):
+	return convert_note_time(input_notes, tempo_dict, ticks_per_beat, True)
+
+def second2tick(input_notes, tempo_dict, ticks_per_beat):
+	return convert_note_time(input_notes, tempo_dict, ticks_per_beat, False)
+
+def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
+	# Create a copy of the notes list
+	notes = copy.deepcopy(input_notes)
+
+	# Store a list of times that the tempo changes
+	tempo_change_times = [[key, -1] for key in tempo_dict.keys()]
+
+	# Add the tempo change times to the notes list so we know when to change the tempo
+	for time in tempo_change_times:
+		notes.append(time)
+
+	# Re-sort the list so that the tempo change times are at the right times
+	notes.sort(key=lambda e: (e[0], e[1]))
+
+	# Set the tempo to the first tempo
+	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
+
+	# Create a variable to keep track of the current time in the output units
+	total_time = 0
+
+	# Create a variable to keep track of the last time in the input units 
+	last_time = 0
+
+	# Convert note start time
+	for note in notes:
+		# If this is a tempo message
+		if(note[1] == -1):
+			# Set the tempo
+			current_tempo = note[0]
+		# If we are converting to seconds
+		if(to_second):
+			# Add to the converted time to the total time
+			total_time += mido.tick2second(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0]))
+		# Otherwise
+		else:
+			# Round the output and cast it to an int, then increment total_time
+			total_time += int(round(mido.second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))))
+		# Set last_time to the value that the note had
+		last_time = note[0]
+		# Set the note's start time to the current time in the new unit
+		note[0] = total_time
+
+	# Delete the tempo messages
+	notes = [note for note in notes if note[1] >= 0]
+
+	# Store a list of times that the tempo changes
+	tempo_change_times = [[-1, key] for key in tempo_dict.keys()]
+
+	# Add the tempo change times to the notes list so we know when to change the tempo
+	for time in tempo_change_times:
+		notes.append(time)
+
+	# Re-sort the list so that the tempo change times are at the right times
+	notes.sort(key=lambda e: (e[1], e[0]))
+
+	# Set the tempo to the first tempo
+	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
+	
+	# Convert note end time
+	for note in notes:
+		# If this is a tempo message
+		if(note[0] == -1):
+			# Set the tempo
+			current_tempo = note[1]
+		# If we are converting to seconds
+		if(to_second):
+			# Add to the converted time to the total time
+			total_time += mido.tick2second(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1]))
+		# Otherwise
+		else:
+			# Round the output and cast it to an int, then increment total_time
+			total_time += int(round(mido.second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))))
+		# Set last_time to the value that the note had
+		last_time = note[1]
+		# Set the note's start time to the current time in the new unit
+		note[1] = total_time
+
+	# Delete the tempo messages
+	notes = [note for note in notes if note[0] >= 0]
+
+	# Re-sort the notes
+	notes.sort(key=lambda e: e[0])
+
+	# Return the notes list
+	return notes

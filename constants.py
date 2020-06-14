@@ -7,7 +7,7 @@
 #      Window Settings
 # ------------------------
 
-MIN_WIDTH = 400
+MIN_WIDTH = 500
 MIN_HEIGHT = 340
 
 MAX_WIDTH = 1800
