@@ -248,6 +248,7 @@ def parse(input_file, output_file, velocity, align_margin):
 		# Convert the note time to second
 		track_notes[i] = tick2second(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 
+		# Sort the notes by their end time
 		track_notes[i].sort(key=lambda e: e[1])
 
 		# Loop through notes
@@ -298,7 +299,6 @@ def parse(input_file, output_file, velocity, align_margin):
 					overlap[1] = mean_time
 					# Turn the bit that signifies the end has been aligned on
 					overlap[4] = overlap[4] | 0b01
-			last_time = mean_time
 
 
 		# Convert the note time back to ticks
@@ -510,11 +510,18 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 		# Otherwise
 		else:
 			# Round the output and cast it to an int, then increment total_time
-			total_time += int(round(mido.second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))))
+			total_time += mido.second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))
 		# Set last_time to the value that the note had
 		last_time = note[0]
-		# Set the note's start time to the current time in the new unit
-		note[0] = total_time
+		# If we are converting to seconds
+		if(to_second):
+			# Set the note's start time to the current time in the new unit
+			note[0] = total_time
+		# Otherwise
+		else:
+			# Cast the time to an int, then set the note's start time to the current time in the new unit
+			note[0] = int(total_time)
+
 
 	# Delete the tempo messages
 	notes = [note for note in notes if note[1] >= 0]
@@ -532,6 +539,12 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Set the tempo to the first tempo
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 	
+	# Reset the variable to keep track of the current time in the output units
+	total_time = 0
+
+	# Reset the variable to keep track of the last time in the input units 
+	last_time = 0
+
 	# Convert note end time
 	for note in notes:
 		# If this is a tempo message
@@ -545,11 +558,17 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 		# Otherwise
 		else:
 			# Round the output and cast it to an int, then increment total_time
-			total_time += int(round(mido.second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))))
+			total_time += mido.second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))
 		# Set last_time to the value that the note had
 		last_time = note[1]
-		# Set the note's start time to the current time in the new unit
-		note[1] = total_time
+		# If we are converting to seconds
+		if(to_second):
+			# Set the note's start time to the current time in the new unit
+			note[1] = total_time
+		# Otherwise
+		else:
+			# Cast the time to an int, then set the note's start time to the current time in the new unit
+			note[1] = int(total_time)
 
 	# Delete the tempo messages
 	notes = [note for note in notes if note[0] >= 0]
