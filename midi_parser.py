@@ -111,12 +111,12 @@ def parse(input_file, output_file, velocity, align_margin):
 		# Create a variable to turn all notes off 
 		off = False
 
+
 		# Loop through all notes in the track
 		for j, msg in enumerate(track):
-
 			# If this is the last message
 			if(j == len(track) - 1):
-				off = False
+				off = True
 
 			# If there is a change in time then add that to the absolute time
 			tick_time += msg.time
@@ -239,6 +239,8 @@ def parse(input_file, output_file, velocity, align_margin):
 		#    Note Processing
 		# =====================
 
+		# TODO: Fix aligning errors where notes overlap by 1 tick
+
 		# If there are any notes that have the same end and start time(0 duration), delete them
 		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
 
@@ -246,7 +248,7 @@ def parse(input_file, output_file, velocity, align_margin):
 		track_notes[i] = [list(t) for t in set(tuple(e) for e in track_notes[i])]
 
 		# Convert the note time to second
-		track_notes[i] = tick2second(track_notes[i], tempo_dict, input_song.ticks_per_beat)
+		track_notes[i] = notes2second(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 
 		# Sort the notes by their end time
 		track_notes[i].sort(key=lambda e: e[1])
@@ -254,11 +256,11 @@ def parse(input_file, output_file, velocity, align_margin):
 		# Loop through notes
 		for note in track_notes[i]:
 			# Find the minimum time the note must begin/end at
-			min_time = note[1] - alignment_margin
+			min_time = note[1] - Decimal(alignment_margin)
 			# Find the maximum time the note must begin/end at
-			max_time = note[1] + alignment_margin
+			max_time = note[1] + Decimal(alignment_margin)
 			# Create a variable to store the mean time of all overlapping notes
-			mean_time = 0
+			mean_time = Decimal(0)
 			# Create a variable to store how many notes are within the margin
 			overlap_notes = 0
 			# If the note's end has already been aligned
@@ -302,7 +304,7 @@ def parse(input_file, output_file, velocity, align_margin):
 
 
 		# Convert the note time back to ticks
-		track_notes[i] = second2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
+		track_notes[i] = notes2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 
 		# If there are any notes that have the same end and start time(0 duration), delete them
 		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
@@ -335,6 +337,7 @@ def parse(input_file, output_file, velocity, align_margin):
 		# ======================
 
 		for j, new_track in enumerate(new_tracks):
+			print(new_track)
 			# Create a new track to append to the MIDI file that will be exported
 			finished_track = mido.MidiTrack()
 
@@ -349,6 +352,8 @@ def parse(input_file, output_file, velocity, align_margin):
 
 			# Loop through all of the notes in the new track
 			for note in new_track:
+				if(note[0] - tick_time < 0):
+					print(note)
 				# Add a note_on message for the note
 				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time)))
 				# Add a note_off message for the note
@@ -468,13 +473,14 @@ def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 	# If we've passed all of them, return the last one
 	return tempos[len(tempos) - 1][1]
 
-def tick2second(input_notes, tempo_dict, ticks_per_beat):
+def notes2second(input_notes, tempo_dict, ticks_per_beat):
 	return convert_note_time(input_notes, tempo_dict, ticks_per_beat, True)
 
-def second2tick(input_notes, tempo_dict, ticks_per_beat):
+def notes2tick(input_notes, tempo_dict, ticks_per_beat):
 	return convert_note_time(input_notes, tempo_dict, ticks_per_beat, False)
 
 def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
+	
 	# Create a copy of the notes list
 	notes = copy.deepcopy(input_notes)
 
@@ -491,11 +497,14 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Set the tempo to the first tempo
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 
+	# Round down
+	getcontext().rounding = ROUND_DOWN
+
 	# Create a variable to keep track of the current time in the output units
-	total_time = 0
+	total_time = Decimal(0)
 
 	# Create a variable to keep track of the last time in the input units 
-	last_time = 0
+	last_time = Decimal(0)
 
 	# Convert note start time
 	for note in notes:
@@ -506,11 +515,11 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 		# If we are converting to seconds
 		if(to_second):
 			# Add to the converted time to the total time
-			total_time += mido.tick2second(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0]))
+			total_time += tick2second(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0]))
 		# Otherwise
 		else:
 			# Round the output and cast it to an int, then increment total_time
-			total_time += mido.second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))
+			total_time += second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))
 		# Set last_time to the value that the note had
 		last_time = note[0]
 		# If we are converting to seconds
@@ -521,7 +530,6 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 		else:
 			# Cast the time to an int, then set the note's start time to the current time in the new unit
 			note[0] = int(total_time)
-
 
 	# Delete the tempo messages
 	notes = [note for note in notes if note[1] >= 0]
@@ -540,10 +548,10 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 	
 	# Reset the variable to keep track of the current time in the output units
-	total_time = 0
+	total_time = Decimal(0)
 
 	# Reset the variable to keep track of the last time in the input units 
-	last_time = 0
+	last_time = Decimal(0)
 
 	# Convert note end time
 	for note in notes:
@@ -554,11 +562,11 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 		# If we are converting to seconds
 		if(to_second):
 			# Add to the converted time to the total time
-			total_time += mido.tick2second(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1]))
+			total_time += tick2second(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1]))
 		# Otherwise
 		else:
 			# Round the output and cast it to an int, then increment total_time
-			total_time += mido.second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))
+			total_time += second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))
 		# Set last_time to the value that the note had
 		last_time = note[1]
 		# If we are converting to seconds
@@ -578,3 +586,12 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 
 	# Return the notes list
 	return notes
+
+
+def tick2second(tick, ticks_per_beat, tempo):
+    scale = Decimal(tempo) * Decimal(1e-6) / Decimal(ticks_per_beat)
+    return Decimal(tick) * scale
+
+def second2tick(second, ticks_per_beat, tempo):
+    scale = Decimal(tempo) * Decimal(1e-6) / Decimal(ticks_per_beat)
+    return Decimal(second) / scale
