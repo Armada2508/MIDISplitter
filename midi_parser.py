@@ -17,7 +17,7 @@ def parse(input_file, output_file, velocity, align_margin):
 	if(input_file == ""):
 		# If the input file weren't given, return an exception
 		return Exception("Input file not specified")
-		
+
 	# Check if the input file wasn't given
 	if(output_file == ""):
 		# If the input file weren't given, return an exception
@@ -56,14 +56,11 @@ def parse(input_file, output_file, velocity, align_margin):
 	# Create a dictionary to serve as a look up table for tempo
 	tempo_dict = {}
 
-	if(len(tempo_dict) == 0):
-		tempo_dict[0] = mido.bpm2tempo(120)
-
 	# Create a aligning margin variable
 	alignment_margin = 0
-	
+
 	try:
-		# See if the user has input an integer
+		# See if the user has input a number
 		alignment_margin = float(align_margin)
 	except:
 		pass
@@ -124,7 +121,7 @@ def parse(input_file, output_file, velocity, align_margin):
 			# If we found a set_tempo message
 			if(msg.is_meta and msg.type == "set_tempo"):
 				# Add it to the look up table
-				tempo_dict[msg.time] = msg.tempo
+				tempo_dict[tick_time] = msg.tempo
 				continue
 
 			# If this is a note on message
@@ -222,6 +219,10 @@ def parse(input_file, output_file, velocity, align_margin):
 			sostenuto_last = sostenuto
 			# Turn the off flag off in case it was on
 			off = False
+
+
+		if(len(tempo_dict) == 0):
+			tempo_dict[0] = mido.bpm2tempo(120)
 
 		# If this is just a meta track
 		if(len(meta_messages) == len(track)):
