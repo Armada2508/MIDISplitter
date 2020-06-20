@@ -341,7 +341,6 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 			new_tracks[track_index].append(note)
 
 		# TODO: Add program messages with channels
-		# TODO: Implement different track order options(collated vs uncollated)
 		# TODO: Export tempo changes
 
 		# ======================
