@@ -5,9 +5,13 @@ from decimal import *
 import copy
 import traceback
 
-def parse(input_file, output_file, velocity, align_margin):
+def parse(input_file, output_file, velocity, align_margin, collated):
 
 	# TODO: Extract parts of parse function into other functions
+	
+	# TODO: Apply Channel index options(On/Off, what order)
+	# TODO: Apply instrument options(On/Off, which instruments)
+	# TODO: Normalize tempo option
 
 	# =====================
 	#    Initialization
@@ -28,11 +32,15 @@ def parse(input_file, output_file, velocity, align_margin):
 	track_notes = []
 	track_meta = []
 
+	# Create a list for storing final tracks
+	output_tracks = []
+
 	# Try to load the input file
 	try:
 		# Load the input MIDI file
 		input_song = mido.MidiFile(input_file)
 	except Exception as err:
+		# Print the error
 		traceback.print_tb(err.__traceback__)
 		# If it couldn't be loaded, return an error
 		return Exception("Input file could not be loaded, try checking the input file path")
@@ -40,9 +48,10 @@ def parse(input_file, output_file, velocity, align_margin):
 	# Create a new MIDI file for the final song
 	output_song = mido.MidiFile(ticks_per_beat=input_song.ticks_per_beat)
 
-	# Check if we should override the note velocity
+	# Create a new variable if we have to override the note velocity
 	new_velocity = -1
 	
+	# Check if we should override the note velocity
 	try:
 		# See if the user has input an integer
 		new_velocity = int(velocity)
@@ -220,16 +229,20 @@ def parse(input_file, output_file, velocity, align_margin):
 			# Turn the off flag off in case it was on
 			off = False
 
-
+		# If there are no tempo messages
 		if(len(tempo_dict) == 0):
+			# Set the tempo to 120bpm
 			tempo_dict[0] = mido.bpm2tempo(120)
+
 
 		# If this is just a meta track
 		if(len(meta_messages) == len(track)):
+			# Add sub-list where this track will be stored
+			output_tracks.append([])
 			# Create a new track
 			finished_track = mido.MidiTrack()
-			# Append the track to the output song
-			output_song.tracks.append(finished_track)
+			# Append this track to the sub-list
+			output_tracks[i].append(finished_track)
 			# Append all messages to the new track
 			for msg in track_meta[i]:
 				finished_track.append(msg)
@@ -335,12 +348,12 @@ def parse(input_file, output_file, velocity, align_margin):
 		#      Track Output
 		# ======================
 
+		# Add sub-list where split tracks from this track will be stored
+		output_tracks.append([])
+
 		for j, new_track in enumerate(new_tracks):
 			# Create a new track to append to the MIDI file that will be exported
 			finished_track = mido.MidiTrack()
-
-			# Add the track to the output file
-			output_song.tracks.append(finished_track)
 
 			# Re-use tick_time to represent absolute time and set it to 0
 			tick_time = 0
@@ -356,6 +369,36 @@ def parse(input_file, output_file, velocity, align_margin):
 				finished_track.append(Message("note_off", note=note[2], velocity=0, time=(note[1] - note[0])))
 				# Set the absolute time to the last message added(the note_off message)
 				tick_time = note[1]
+			
+			# Append the finished track to the list of tracks to be output
+			output_tracks[i].append(finished_track)
+
+	# If we are collating the output
+	if(collated):
+		# Find the maximum number of times a track was split
+		max_split = 0
+		# Loop through all tracks
+		for initial_track in output_tracks:
+			# If this track was split more times, make it the new maximum
+			max_split = max(max_split, len(initial_track))
+		# Loop through the sub-lists
+		for i in range(0, max_split):
+			# Loop through the intitial(outer) lists
+			for initial_track in output_tracks:
+				# If we have already appended all split tracks on this track
+				if(i >= len(initial_track)):
+					# Skip this loop iteration
+					continue
+				# Add track to output file
+				output_song.tracks.append(initial_track[i])
+	# If the tracks should not be collated
+	else:
+		# Flatten the list of output tracks
+		output_tracks = [output_track for initial_track in output_tracks for output_track in initial_track]
+		# Loop through tracks
+		for track in output_tracks:
+			# Add track to output file
+			output_song.tracks.append(track)
 
 	# Try to save the song
 	try:
@@ -364,6 +407,7 @@ def parse(input_file, output_file, velocity, align_margin):
 		# If it saves, return true
 		return True
 	except Exception as err:
+		# Print the error
 		traceback.print_tb(err.__traceback__)
 		# If it fails to save, return an exception
 		return Exception("Could not save file, try checking the output file path")
@@ -497,7 +541,7 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 
 	# Round down if necessary
-	getcontext().rounding = ROUND_DOWN
+	getcontext().rounding = ROUND_UP
 
 	# Create a variable to keep track of the current time in the output units
 	total_time = Decimal(0)

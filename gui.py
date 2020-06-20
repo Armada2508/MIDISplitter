@@ -141,7 +141,7 @@ class Interface(tk.Frame):
 
 	def convert_song(self):
 		# Parse the file
-		result = mp.parse(self.input_file.get(), self.output_file.get(), self.note_velocity.get(), self.aligning_margin.get())
+		result = mp.parse(self.input_file.get(), self.output_file.get(), self.note_velocity.get(), self.aligning_margin.get(), self.export_order.get() == "Collated")
 		self.convert_button.config(bg="green" if not isinstance(result, Exception) else "red")
 		if isinstance(result, Exception):
 			tkinter.messagebox.showerror(title="Conversion Error", message=result)
