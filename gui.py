@@ -53,18 +53,24 @@ class Interface(tk.Frame):
 	# Create the main gui with widgets
 	def create_gui(self):
 		# Initialize Frame object for containing title
-		header_container = tk.Frame(self.master, width=0, height=80)
+		header_container = tk.Frame(self.master, width=0, height=50)
 		# Initialize Frame objects for containing file selector widgets
 		input_container = tk.Frame(self.master, width=0, height=80)
 		output_container = tk.Frame(self.master, width=0, height=80)
-		# Initialize Frame object for containing options
-		options_container = tk.Frame(self.master, width=0, height=80)
-		# Initialize option Frame containers
-		note_velocity_container = tk.Frame(options_container, width=80, height=0)
-		track_export_order_container = tk.Frame(options_container, width=10, height=0)
-		aligning_container = tk.Frame(options_container, width=80, height=0)
-		# Initialize convert
-		convert_container = tk.Frame(self.master, width=0, height=100)
+		# Initialize Frame objects for containing options
+		top_options_container = tk.Frame(self.master, width=0, height=70)
+		bottom_options_container = tk.Frame(self.master, width=0, height=70)
+		# Initialize Frame containers for options
+		# Top
+		note_velocity_container = tk.Frame(top_options_container, width=80, height=0)
+		track_export_order_container = tk.Frame(top_options_container, width=80, height=0)
+		aligning_container = tk.Frame(top_options_container, width=80, height=0)
+		# Bottom
+		channel_index_container = tk.Frame(bottom_options_container, width=80, height=0)
+		assign_instrument_container = tk.Frame(bottom_options_container, width=80, height=0)
+		normalize_tempo_container = tk.Frame(bottom_options_container, width=80, height=0)
+		# Initialize convert button container
+		convert_container = tk.Frame(self.master, width=0, height=80)
 		# Create the main title
 		title = tk.Label(header_container, text="MIDI Splitter", font=self.font_large, justify="center", width=10, border=0)
 		# Create an input and output button which brings up a dialog for selecting files
@@ -78,6 +84,10 @@ class Interface(tk.Frame):
 		self.note_velocity_string = tk.StringVar()
 		self.aligning_margin_string = tk.StringVar()
 		self.track_export_order_string = tk.StringVar()
+		self.normalize_tempo_string = tk.StringVar()
+		# Create int variables so that the state of checkboxes can be accessed
+		self.channel_index_int = tk.IntVar(value=1)
+		self.assign_instrument_int = tk.IntVar(value=1)
 		# Set the default track export order method
 		self.track_export_order_string.set("Collated")
 		# Create entries for files
@@ -86,17 +96,25 @@ class Interface(tk.Frame):
 		# Create entries for options
 		note_velocity_entry = tk.Entry(note_velocity_container, font=self.font_small, justify="center", textvariable=self.note_velocity_string, width=10)
 		aligning_entry = tk.Entry(aligning_container, font=self.font_small, justify="center", textvariable=self.aligning_margin_string, width=10)
+		normalize_tempo_entry = tk.Entry(normalize_tempo_container, font=self.font_small, justify="center", textvariable=self.normalize_tempo_string, width=10)
+		# Create checkboxes for options
+		channel_index_checkbox = tk.Checkbutton(channel_index_container, variable=self.channel_index_int)
+		assign_instrument_checkbox = tk.Checkbutton(assign_instrument_container, variable=self.assign_instrument_int)
 		# Color the entries based on if they are valid
 		self.input_file_string.trace('w', lambda *args: input_file_entry.config(bg=self.path_color(self.input_file_string.get(), False)))
 		self.output_file_string.trace('w', lambda *args: output_file_entry.config(bg=self.path_color(self.output_file_string.get(), True)))
 		self.note_velocity_string.trace('w', lambda *args: note_velocity_entry.config(bg=self.velocity_color(self.note_velocity_string.get())))
 		self.aligning_margin_string.trace('w', lambda *args: aligning_entry.config(bg=self.margin_color(self.aligning_margin_string.get())))
+		self.normalize_tempo_string.trace('w', lambda *args: normalize_tempo_entry.config(bg=self.tempo_color(self.normalize_tempo_string.get())))
 		# Reset convert button if any options are changed
 		self.input_file_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.output_file_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.note_velocity_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.aligning_margin_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.track_export_order_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.normalize_tempo_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.channel_index_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.assign_instrument_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		# Create dropdown for selecting track export order method
 		track_export_order_menu = tk.OptionMenu(track_export_order_container, self.track_export_order_string, "Collated", "Uncollated")
 		# Format menu
@@ -108,24 +126,32 @@ class Interface(tk.Frame):
 		velocity_label = tk.Label(note_velocity_container, font=self.font_small, text="Set Note Velocity(1-127)")
 		aligning_label = tk.Label(aligning_container, font=self.font_small, text="Aligning Margin(seconds)")
 		track_export_order_label = tk.Label(track_export_order_container, font=self.font_small, text="Track Export Order")
+		channel_index_label = tk.Label(channel_index_container, font=self.font_small, text="Index Output Track Channels")
+		assign_instrument_label = tk.Label(assign_instrument_container, font=self.font_small, text="Assign Instruments to Tracks")
+		normalize_tempo_label = tk.Label(normalize_tempo_container, font=self.font_small, text="Normalize Tempo(BPM)")
 		# Don't resize frames if not big enough to hold widgets
 		header_container.pack_propagate(0)
 		input_container.pack_propagate(0)
 		output_container.pack_propagate(0)
 		convert_container.pack_propagate(0)
-		options_container.pack_propagate(0)
+		top_options_container.pack_propagate(0)
+		bottom_options_container.pack_propagate(0)
 		# Pack all of the Frames
 		convert_container.pack(side=tk.BOTTOM, expand=1, fill='both')
-		options_container.pack(side=tk.BOTTOM, expand=1, fill='both')
+		bottom_options_container.pack(side=tk.BOTTOM, expand=1, fill='both')
+		top_options_container.pack(side=tk.BOTTOM, expand=1, fill='both')
 		note_velocity_container.pack(side=tk.LEFT, expand=1, fill='both')
-		aligning_container.pack(side=tk.RIGHT, expand=1, fill='both')
 		track_export_order_container.pack(side=tk.RIGHT, expand=1, fill='both')
+		aligning_container.pack(side=tk.RIGHT, expand=1, fill='both')
+		channel_index_container.pack(side=tk.LEFT, expand=1, fill='both')
+		normalize_tempo_container.pack(side=tk.RIGHT, expand=1, fill='both')
+		assign_instrument_container.pack(side=tk.RIGHT, expand=1, fill='both')
 		header_container.pack(side=tk.TOP, expand=1, fill='both')
 		input_container.pack(side=tk.LEFT, expand=1, fill='both')
 		output_container.pack(side=tk.RIGHT, expand=1, fill='both')
 		# Pack the title
 		title.pack(side=tk.TOP, expand=1, fill='y', pady=(10, 10))
-		self.convert_button.pack(side=tk.TOP, fill='both', expand=1, padx=(20, 20), pady=(20, 20))
+		self.convert_button.pack(side=tk.TOP, fill='both', expand=1, padx=(10, 10), pady=(10, 10))
 		# Pack the file selection buttons
 		input_file_button.pack(side=tk.TOP, fill='both', padx=(10, 10), pady=(10, 10))
 		output_file_button.pack(side=tk.TOP, fill='both', padx=(10, 10), pady=(10, 10))
@@ -133,16 +159,24 @@ class Interface(tk.Frame):
 		input_file_entry.pack(side=tk.TOP, fill='both', padx=(10, 10))
 		output_file_entry.pack(side=tk.TOP, fill='both', padx=(10, 10))
 		# Pack the options
+		# Top
 		velocity_label.pack(side=tk.TOP, pady=(5, 5))
 		note_velocity_entry.pack(side=tk.TOP, pady=(0, 5))
 		aligning_label.pack(side=tk.TOP, pady=(5, 5))
 		aligning_entry.pack(side=tk.TOP, pady=(0, 5))
 		track_export_order_label.pack(side=tk.TOP, pady=(5, 5))
 		track_export_order_menu.pack(side=tk.TOP, pady=(0, 5))
+		# Bottom
+		channel_index_label.pack(side=tk.TOP, pady=(5, 5))
+		channel_index_checkbox.pack(side=tk.TOP, pady=(0, 5))
+		assign_instrument_label.pack(side=tk.TOP, pady=(5, 5))
+		assign_instrument_checkbox.pack(side=tk.TOP, pady=(0, 5))
+		normalize_tempo_label.pack(side=tk.TOP, pady=(5, 5))
+		normalize_tempo_entry.pack(side=tk.TOP, pady=(0, 5))
 
 	def convert_song(self):
 		# Parse the file
-		result = mp.parse(self.input_file_string.get(), self.output_file_string.get(), self.note_velocity_string.get(), self.aligning_margin_string.get(), self.track_export_order_string.get() == "Collated")
+		result = mp.parse(self.input_file_string.get(), self.output_file_string.get(), self.note_velocity_string.get(), self.aligning_margin_string.get(), self.track_export_order_string.get() == "Collated", self.normalize_tempo_string.get(), self.channel_index_int.get(), self.assign_instrument_int.get())
 		self.convert_button.config(bg="green" if not isinstance(result, Exception) else "red")
 		if isinstance(result, Exception):
 			tkinter.messagebox.showerror(title="Conversion Error", message=result)
@@ -170,5 +204,14 @@ class Interface(tk.Frame):
 		try:
 			value = float(value)
 			return "green" if value >= 0 else "red"
+		except:
+			return "red"
+
+	def tempo_color(self, value):
+		if(value == ""):
+			return "green"
+		try:
+			value = int(value)
+			return "green" if value > 0 else "red"
 		except:
 			return "red"

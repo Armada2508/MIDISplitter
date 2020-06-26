@@ -5,13 +5,9 @@ from decimal import *
 import copy
 import traceback
 
-def parse(input_file, output_file, velocity, align_margin, collated):
+def parse(input_file, output_file, new_velocity, align_margin, collated, normalized_tempo, index_ouput_tracks, assign_programs):
 
 	# TODO: Extract parts of parse function into other functions
-	
-	# TODO: Apply Channel index options(On/Off, what order)
-	# TODO: Apply instrument options(On/Off, which instruments)
-	# TODO: Normalize tempo option
 
 	# =====================
 	#    Initialization
@@ -35,6 +31,9 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 	# Create a list for storing final tracks
 	output_tracks = []
 
+	# Create a list to store which output tracks are only meta
+	meta_track_indices = []
+
 	# Try to load the input file
 	try:
 		# Load the input MIDI file
@@ -47,20 +46,40 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 
 	# Create a new MIDI file for the final song
 	output_song = mido.MidiFile(ticks_per_beat=input_song.ticks_per_beat)
-
-	# Create a new variable if we have to override the note velocity
-	new_velocity = -1
 	
 	# Check if we should override the note velocity
 	try:
 		# See if the user has input an integer
-		new_velocity = int(velocity)
+		new_velocity = int(new_velocity)
 	except:
+		# If the user has not input an integer, signal that
+		new_velocity = -1
 		pass
 
 	# If it's out of range, set it to -1
 	if(new_velocity < 1 or new_velocity > 127):
 		new_velocity = -1
+	
+	# Check if we should override the tempo
+	try:
+		# See if the user has input an integer
+		normalized_tempo = int(normalized_tempo)
+		# Convert the tempo from bpm to the correct units
+		normalized_tempo = mido.bpm2tempo(normalized_tempo)
+	except:
+		# If the user has not, ignore it
+		normalized_tempo = -1
+		pass
+
+	# If it's out of range, set it to -1
+	if(normalized_tempo < 1):
+		normalized_tempo = -1
+
+	# Cast the parameter to a boolean
+	index_ouput_tracks = bool(index_ouput_tracks)
+
+	# Cast the parameter to a boolean
+	assign_programs = bool(assign_programs)
 
 	# Create a dictionary to serve as a look up table for tempo
 	tempo_dict = {}
@@ -246,6 +265,8 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 			# Append all messages to the new track
 			for msg in track_meta[i]:
 				finished_track.append(msg)
+			# Add this track indedx to the list recording which tracks are only meta
+			meta_track_indices.append(i)
 			# Skip everything below
 			continue
 
@@ -314,9 +335,15 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 					# Turn the bit that signifies the end has been aligned on
 					overlap[4] = overlap[4] | 0b01
 
+		# If we should not normalize the tempo
+		if(normalized_tempo == -1):
+			# Convert the note time back to ticks with the original tempos
+			track_notes[i] = notes2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
+		# If we should normalize the tempo
+		else:
+			# Convert the note time back to ticks with a single tempo
+			track_notes[i] = notes2tick(track_notes[i], {0: normalized_tempo}, input_song.ticks_per_beat)
 
-		# Convert the note time back to ticks
-		track_notes[i] = notes2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 
 		# If there are any notes that have the same end and start time(0 duration), delete them
 		track_notes[i] = [note for note in track_notes[i] if note[0] != note[1]]
@@ -340,9 +367,6 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 			# Add the note to its track
 			new_tracks[track_index].append(note)
 
-		# TODO: Add program messages with channels
-		# TODO: Export tempo changes
-
 		# ======================
 		#      Track Output
 		# ======================
@@ -357,7 +381,7 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 			# Re-use tick_time to represent absolute time and set it to 0
 			tick_time = 0
 
-			# Set the finished track name to the old track name with an index starting with 1
+			# Set the finished track name to the old track name concatenated with an index starting with 1
 			finished_track.name = track.name + " " + str(j + 1)
 
 			# Loop through all of the notes in the new track
@@ -398,6 +422,32 @@ def parse(input_file, output_file, velocity, align_margin, collated):
 		for track in output_tracks:
 			# Add track to output file
 			output_song.tracks.append(track)
+
+	# If we are indexing the output tracks
+	if(index_ouput_tracks):
+		# Loop through all the tracks
+		for i, track in enumerate(output_song.tracks):
+			# Start off with a channel index of the current track index
+			channel_index = i
+			# For every meta only track before it, subtract one
+			for index in meta_track_indices:
+				if index < i:
+					channel_index -= 1
+			# Set the channel of each of the tracks
+			output_song.tracks[i] = set_channel(track, channel_index)
+	
+	# If we are assigning the programs on the output tracks
+	if(assign_programs):
+		# Loop through all the tracks
+		for i, track in enumerate(output_song.tracks):
+			# Start off with a program index of the current track index
+			program_index = i
+			# For every meta only track before it, subtract one
+			for index in meta_track_indices:
+				if index < i:
+					program_index -= 1
+			# Set the program of each of the trackf
+			output_song.tracks[i] = set_program(track, program_index, program_index)
 
 	# Try to save the song
 	try:
@@ -642,3 +692,37 @@ def second2tick(second, ticks_per_beat, tempo):
     scale = Decimal(tempo) * Decimal(1e-6) / Decimal(ticks_per_beat)
 	# Divide by the scaling factor
     return Decimal(second) / scale
+
+# Set the channel of all messages in a track
+def set_channel(track, channel_index):
+	# If the channel_index is out of range
+	if(channel_index < 0 or channel_index > 15):
+		# Force it into range
+		channel_index = min(max(channel_index, 0), 15)
+	# Loop through all messages
+	for msg in track:
+		# Try to set the channel
+		try:
+			msg.channel = channel_index
+		# If it fails, don't worry about it
+		except:
+			pass
+	# Return the track
+	return track
+
+# Set the program of a track
+def set_program(track, program_index, channel_index):
+	# If the channel_index is out of range
+	if(channel_index < 0 or channel_index > 15):
+		# Force it into range
+		channel_index = min(max(channel_index, 0), 15)
+	# If the program index is out of range
+	if(program_index < 0 or program_index > 127):
+		# Force it into range
+		channel = min(max(channel, 0), 127)
+	# Remove all program change messages
+	track = [msg for msg in track if not msg.type == "program_change"]
+	# Insert a program change message at the start of the track
+	track.insert(1, Message("program_change", channel=channel_index, program=program_index))
+	# Return the track
+	return track
