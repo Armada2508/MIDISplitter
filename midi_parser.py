@@ -517,10 +517,6 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 				# Set tick_time
 				tick_time = tempos[i][0]
 
-	for track in output_song.tracks:
-		for msg in track:
-			print(msg)
-
 	# Try to save the song
 	try:
 		# Save the song
