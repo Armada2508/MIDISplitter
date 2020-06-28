@@ -1,4 +1,6 @@
 from os import path
+import os
+import base64
 import tkinter as tk
 import tkinter.filedialog
 import tkinter.font
@@ -27,7 +29,13 @@ class Interface(tk.Frame):
 		self.input_file_chooser = None
 		self.output_file_chooser = None
 		# Add an icon
+		icondata= base64.b64decode(c.ICON_BASE64)
+		tempFile= "icon.ico"
+		iconfile= open(tempFile,"wb")
+		iconfile.write(icondata)
+		iconfile.close()
 		self.master.iconbitmap(c.ICON_PATH)
+		os.remove(tempFile)
 		self.pack()
 		# Create the main gui with widgets
 		self.create_gui()
