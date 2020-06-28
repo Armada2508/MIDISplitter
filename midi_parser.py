@@ -1,5 +1,5 @@
 import mido
-from mido import Message, MidiFile, MidiTrack
+from mido import MetaMessage, Message, MidiFile, MidiTrack
 import constants as c
 from decimal import *
 import copy
@@ -141,6 +141,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		for j, msg in enumerate(track):
 			# If this is the last message
 			if(j == len(track) - 1):
+				# Turn all notes off
 				off = True
 
 			# If there is a change in time then add that to the absolute time
@@ -150,6 +151,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			if(msg.is_meta and msg.type == "set_tempo"):
 				# Add it to the look up table
 				tempo_dict[tick_time] = msg.tempo
+				# Skip everything below
 				continue
 
 			# If this is a note on message
@@ -256,17 +258,22 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 
 		# If this is just a meta track
 		if(len(meta_messages) == len(track)):
+			# Add this track index to the list recording which tracks are only meta
+			meta_track_indices.append(len(output_tracks))
 			# Add sub-list where this track will be stored
 			output_tracks.append([])
 			# Create a new track
-			finished_track = mido.MidiTrack()
+			finished_track = MidiTrack()
 			# Append this track to the sub-list
 			output_tracks[i].append(finished_track)
-			# Append all messages to the new track
+			# Loop through all messages
 			for msg in track_meta[i]:
+				# If this is a tempo message
+				if(msg.type == "set_tempo"):
+					# Don't append it
+					continue
+				# Append message to the finished track
 				finished_track.append(msg)
-			# Add this track indedx to the list recording which tracks are only meta
-			meta_track_indices.append(i)
 			# Skip everything below
 			continue
 
@@ -371,12 +378,14 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		#      Track Output
 		# ======================
 
+		# TODO: Export tempo messages
+
 		# Add sub-list where split tracks from this track will be stored
 		output_tracks.append([])
 
 		for j, new_track in enumerate(new_tracks):
 			# Create a new track to append to the MIDI file that will be exported
-			finished_track = mido.MidiTrack()
+			finished_track = MidiTrack()
 
 			# Re-use tick_time to represent absolute time and set it to 0
 			tick_time = 0
@@ -448,6 +457,69 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 					program_index -= 1
 			# Set the program of each of the trackf
 			output_song.tracks[i] = set_program(track, program_index, program_index)
+
+	# If we should normalize the tempo
+	if(normalized_tempo != -1):
+		# Set the tempo at the beginning of the song
+		output_song.tracks[0].insert(0, MetaMessage("set_tempo", tempo=normalized_tempo))
+	# If we are not normalizing the tempo
+	else:
+		# If there are no meta only tracks
+		if(len(meta_track_indices) == 0):
+			# Create a new track
+			output_song.tracks.insert(0, MidiTrack())
+			# Add its index to the list of meta only tracks
+			meta_track_indices.append(0)
+		# Create a list to store tempos in
+		tempos = []
+		# Convert tempo_dict to a 2d list
+		for time in tempo_dict:
+			tempos.append([time, tempo_dict[time]])
+		
+		# Re-use tick_time to store absolte time
+		tick_time = 0
+
+		# Create a variable to store the index of the last tempo inserted
+		tempo_index = 0
+
+		# Create a variable to store the total length of the track
+		total_time = 0
+
+		# Get the length of the track
+		for msg in output_song.tracks[meta_track_indices[0]]:
+			total_time += msg.time
+
+		for i in range(len(output_song.tracks[meta_track_indices[0]]) + len(list(filter(lambda e: e[0] <= total_time, tempos)))):
+			# Increment tick_time
+			tick_time += output_song.tracks[meta_track_indices[0]][i].time
+			# If we're at the end of the list
+			if(i == len(output_song.tracks[meta_track_indices[0]]) - 1):
+				# Skip everything below
+				continue
+			# If the tempo is between these messages
+			if(tick_time <= tempos[tempo_index][0] and tempos[tempo_index][0] <= tick_time + output_song.tracks[meta_track_indices[0]][i + 1].time):
+				# Decrease the delta of the message after it
+				output_song.tracks[meta_track_indices[0]][i + 1].time -= tempos[tempo_index][0]-tick_time
+				# Insert the message
+				output_song.tracks[meta_track_indices[0]].insert(i + 1, MetaMessage("set_tempo", tempo=tempos[tempo_index][1], time=tempos[tempo_index][0]-tick_time))
+				# Increment the tempo index
+				tempo_index += 1
+			# If we addded all the tempos
+			if(tempo_index == len(tempos)):
+				# Stop adding them
+				break
+		# If we didn't add all the tempos
+		if(tempo_index < len(tempos) - 1):
+			# Loop through the remaining tempos
+			for i in range(tempo_index, len(tempos)):
+				# Append the remaining messages
+				output_song.tracks[meta_track_indices[0]].append(MetaMessage("set_tempo", tempo=tempos[i][1], time=tempos[i][0]-tick_time))
+				# Set tick_time
+				tick_time = tempos[i][0]
+
+	for track in output_song.tracks:
+		for msg in track:
+			print(msg)
 
 	# Try to save the song
 	try:
