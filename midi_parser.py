@@ -657,7 +657,7 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Set the tempo to the first tempo
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 
-	# Round down if necessary
+	# Round up if necessary
 	getcontext().rounding = ROUND_UP
 
 	# Create a variable to keep track of the current time in the output units
