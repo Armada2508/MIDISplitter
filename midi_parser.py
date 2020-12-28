@@ -5,8 +5,10 @@ from decimal import *
 import copy
 import traceback
 
-def parse(input_file, output_file, new_velocity, align_margin, collated, normalized_tempo, index_ouput_tracks, assign_programs):
+def parse(input_file, output_file, new_velocity, align_margin, collated, normalized_tempo, index_output_tracks, assign_programs):
 
+	# TODO: Options for merging tracks
+	# TODO: Align notes in different tracks
 	# TODO: Extract parts of parse function into other functions
 
 	# =====================
@@ -76,7 +78,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		normalized_tempo = -1
 
 	# Cast the parameter to a boolean
-	index_ouput_tracks = bool(index_ouput_tracks)
+	index_output_tracks = bool(index_output_tracks)
 
 	# Cast the parameter to a boolean
 	assign_programs = bool(assign_programs)
@@ -433,7 +435,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			output_song.tracks.append(track)
 
 	# If we are indexing the output tracks
-	if(index_ouput_tracks):
+	if(index_output_tracks):
 		# Loop through all the tracks
 		for i, track in enumerate(output_song.tracks):
 			# Start off with a channel index of the current track index
@@ -455,7 +457,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			for index in meta_track_indices:
 				if index < i:
 					program_index -= 1
-			# Set the program of each of the trackf
+			# Set the program of each of the track
 			output_song.tracks[i] = set_program(track, program_index, program_index)
 
 	# If we should normalize the tempo
@@ -476,7 +478,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		for time in tempo_dict:
 			tempos.append([time, tempo_dict[time]])
 		
-		# Re-use tick_time to store absolte time
+		# Re-use tick_time to store absolute time
 		tick_time = 0
 
 		# Create a variable to store the index of the last tempo inserted
@@ -488,12 +490,34 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# Get the length of the track
 		for msg in output_song.tracks[meta_track_indices[0]]:
 			total_time += msg.time
+		
+		# Create a new variable to store if the firest meta track is empty
+		first_meta_empty = len(output_song.tracks[meta_track_indices[0]]) == 0
 
+		# Loop through the first meta track to which we will add tempo messages(which will be the original length + # of tempo messages when done)
 		for i in range(len(output_song.tracks[meta_track_indices[0]]) + len(list(filter(lambda e: e[0] <= total_time, tempos)))):
+			# If we addded all the tempos
+			if(tempo_index == len(tempos)):
+				# Stop adding them
+				break
+			# If the meta track is/was empty
+			if(first_meta_empty):
+				# Insert the message
+				output_song.tracks[meta_track_indices[0]].append(MetaMessage("set_tempo", tempo=tempos[tempo_index][1], time=tempos[tempo_index][0]-tick_time))
+				# Increment tick_time
+				tick_time += output_song.tracks[meta_track_indices[0]][i].time
+				# Increment the tempo index
+				tempo_index += 1
+				# Skip everything below
+				continue
 			# Increment tick_time
 			tick_time += output_song.tracks[meta_track_indices[0]][i].time
 			# If we're at the end of the list
 			if(i == len(output_song.tracks[meta_track_indices[0]]) - 1):
+				# Insert the message
+				output_song.tracks[meta_track_indices[0]].append(MetaMessage("set_tempo", tempo=tempos[tempo_index][1], time=tempos[tempo_index][0]-tick_time))
+				# Increment the tempo index
+				tempo_index += 1
 				# Skip everything below
 				continue
 			# If the tempo is between these messages
@@ -504,10 +528,6 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 				output_song.tracks[meta_track_indices[0]].insert(i + 1, MetaMessage("set_tempo", tempo=tempos[tempo_index][1], time=tempos[tempo_index][0]-tick_time))
 				# Increment the tempo index
 				tempo_index += 1
-			# If we addded all the tempos
-			if(tempo_index == len(tempos)):
-				# Stop adding them
-				break
 		# If we didn't add all the tempos
 		if(tempo_index < len(tempos) - 1):
 			# Loop through the remaining tempos

@@ -190,6 +190,8 @@ class Interface(tk.Frame):
 			tkinter.messagebox.showerror(title="Conversion Error", message=result)
 	
 	def path_color(self, filepath, save):
+		if(filepath == ""):
+			return "white"
 		# If we're saving the file
 		if(save):
 			# If the path is valid and it has the correct extension
@@ -199,7 +201,7 @@ class Interface(tk.Frame):
 	
 	def velocity_color(self, value):
 		if(value == ""):
-			return "green"
+			return "white"
 		try:
 			value = int(value)
 			return "green" if value < 128 and value > 0 else "red"
@@ -208,7 +210,7 @@ class Interface(tk.Frame):
 	
 	def margin_color(self, value):
 		if(value == ""):
-			return "green"
+			return "white"
 		try:
 			value = float(value)
 			return "green" if value >= 0 else "red"
@@ -217,7 +219,7 @@ class Interface(tk.Frame):
 
 	def tempo_color(self, value):
 		if(value == ""):
-			return "green"
+			return "white"
 		try:
 			value = int(value)
 			return "green" if value > 0 else "red"
