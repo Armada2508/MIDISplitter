@@ -1,7 +1,7 @@
 import mido
 from mido import MetaMessage, Message, MidiFile, MidiTrack
 import constants as c
-from decimal import *
+from decimal import Decimal, ROUND_UP, getcontext
 import copy
 import traceback
 
@@ -674,6 +674,8 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Re-sort the list so that the tempo change times are at the right times
 	notes.sort(key=lambda e: (e[0], e[1]))
 
+	# TODO: What does this do?  Tempo issues?
+	
 	# Set the tempo to the first tempo
 	current_tempo = get_tempo(tempo_dict, 0, seconds=not to_second, ticks_per_beat=ticks_per_beat)
 
