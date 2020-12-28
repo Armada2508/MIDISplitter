@@ -415,7 +415,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			max_split = max(max_split, len(initial_track))
 		# Loop through the sub-lists
 		for i in range(0, max_split):
-			# Loop through the intitial(outer) lists
+			# Loop through the initial(outer) lists
 			for initial_track in output_tracks:
 				# If we have already appended all split tracks on this track
 				if(i >= len(initial_track)):
