@@ -74,8 +74,8 @@ class Interface(tk.Frame):
 		track_export_order_container = tk.Frame(top_options_container, width=80, height=0)
 		aligning_container = tk.Frame(top_options_container, width=80, height=0)
 		# Bottom
-		channel_index_container = tk.Frame(bottom_options_container, width=80, height=0)
-		assign_instrument_container = tk.Frame(bottom_options_container, width=80, height=0)
+		create_channels_container = tk.Frame(bottom_options_container, width=80, height=0)
+		index_patches_container = tk.Frame(bottom_options_container, width=80, height=0)
 		normalize_tempo_container = tk.Frame(bottom_options_container, width=80, height=0)
 		# Initialize convert button container
 		convert_container = tk.Frame(self.master, width=0, height=80)
@@ -94,8 +94,8 @@ class Interface(tk.Frame):
 		self.track_export_order_string = tk.StringVar()
 		self.normalize_tempo_string = tk.StringVar()
 		# Create int variables so that the state of checkboxes can be accessed
-		self.channel_index_int = tk.IntVar(value=1)
-		self.assign_instrument_int = tk.IntVar(value=1)
+		self.create_channels_int = tk.IntVar(value=1)
+		self.index_patches_int = tk.IntVar(value=1)
 		# Set the default track export order method
 		self.track_export_order_string.set("Collated")
 		# Create entries for files
@@ -106,14 +106,16 @@ class Interface(tk.Frame):
 		aligning_entry = tk.Entry(aligning_container, font=self.font_small, justify="center", textvariable=self.aligning_margin_string, width=10)
 		normalize_tempo_entry = tk.Entry(normalize_tempo_container, font=self.font_small, justify="center", textvariable=self.normalize_tempo_string, width=10)
 		# Create checkboxes for options
-		channel_index_checkbox = tk.Checkbutton(channel_index_container, variable=self.channel_index_int)
-		assign_instrument_checkbox = tk.Checkbutton(assign_instrument_container, variable=self.assign_instrument_int)
+		create_channels_checkbox = tk.Checkbutton(create_channels_container, variable=self.create_channels_int)
+		index_patches_checkbox = tk.Checkbutton(index_patches_container, variable=self.index_patches_int)
 		# Color the entries based on if they are valid
 		self.input_file_string.trace('w', lambda *args: input_file_entry.config(bg=self.path_color(self.input_file_string.get(), False)))
 		self.output_file_string.trace('w', lambda *args: output_file_entry.config(bg=self.path_color(self.output_file_string.get(), True)))
 		self.note_velocity_string.trace('w', lambda *args: note_velocity_entry.config(bg=self.velocity_color(self.note_velocity_string.get())))
 		self.aligning_margin_string.trace('w', lambda *args: aligning_entry.config(bg=self.margin_color(self.aligning_margin_string.get())))
 		self.normalize_tempo_string.trace('w', lambda *args: normalize_tempo_entry.config(bg=self.tempo_color(self.normalize_tempo_string.get())))
+		self.index_patches_int.trace('w', lambda *args: self.create_channels_int.set(True) if self.index_patches_int.get() else True)
+		self.create_channels_int.trace('w', lambda *args: self.index_patches_int.set(False) if not self.create_channels_int.get() else True)
 		# Reset convert button if any options are changed
 		self.input_file_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.output_file_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
@@ -121,8 +123,8 @@ class Interface(tk.Frame):
 		self.aligning_margin_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.track_export_order_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		self.normalize_tempo_string.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
-		self.channel_index_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
-		self.assign_instrument_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.create_channels_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
+		self.index_patches_int.trace('w', lambda *args: self.convert_button.config(bg="SystemButtonFace"))
 		# Create dropdown for selecting track export order method
 		track_export_order_menu = tk.OptionMenu(track_export_order_container, self.track_export_order_string, "Collated", "Uncollated")
 		# Format menu
@@ -134,16 +136,27 @@ class Interface(tk.Frame):
 		velocity_label = tk.Label(note_velocity_container, font=self.font_small, text="Set Note Velocity(1-127)")
 		aligning_label = tk.Label(aligning_container, font=self.font_small, text="Aligning Margin(seconds)")
 		track_export_order_label = tk.Label(track_export_order_container, font=self.font_small, text="Track Export Order")
-		channel_index_label = tk.Label(channel_index_container, font=self.font_small, text="Index Output Track Channels")
-		assign_instrument_label = tk.Label(assign_instrument_container, font=self.font_small, text="Assign Instruments to Tracks")
+		create_channels_label = tk.Label(create_channels_container, font=self.font_small, text="Create Channels")
+		index_patches_label = tk.Label(index_patches_container, font=self.font_small, text="Index Patches")
 		normalize_tempo_label = tk.Label(normalize_tempo_container, font=self.font_small, text="Normalize Tempo(BPM)")
 		# Don't resize frames if not big enough to hold widgets
+
+		# Top Level Containers
 		header_container.pack_propagate(0)
 		input_container.pack_propagate(0)
 		output_container.pack_propagate(0)
 		convert_container.pack_propagate(0)
 		top_options_container.pack_propagate(0)
 		bottom_options_container.pack_propagate(0)
+		# Top Options
+		note_velocity_container.pack_propagate(0)
+		track_export_order_container.pack_propagate(0)
+		aligning_container.pack_propagate(0)
+		# Bottom Options
+		create_channels_container.pack_propagate(0)
+		normalize_tempo_container.pack_propagate(0)
+		index_patches_container.pack_propagate(0)
+
 		# Pack all of the Frames
 		convert_container.pack(side=tk.BOTTOM, expand=1, fill='both')
 		bottom_options_container.pack(side=tk.BOTTOM, expand=1, fill='both')
@@ -151,9 +164,9 @@ class Interface(tk.Frame):
 		note_velocity_container.pack(side=tk.LEFT, expand=1, fill='both')
 		track_export_order_container.pack(side=tk.RIGHT, expand=1, fill='both')
 		aligning_container.pack(side=tk.RIGHT, expand=1, fill='both')
-		channel_index_container.pack(side=tk.LEFT, expand=1, fill='both')
+		create_channels_container.pack(side=tk.LEFT, expand=1, fill='both')
 		normalize_tempo_container.pack(side=tk.RIGHT, expand=1, fill='both')
-		assign_instrument_container.pack(side=tk.RIGHT, expand=1, fill='both')
+		index_patches_container.pack(side=tk.RIGHT, expand=1, fill='both')
 		header_container.pack(side=tk.TOP, expand=1, fill='both')
 		input_container.pack(side=tk.LEFT, expand=1, fill='both')
 		output_container.pack(side=tk.RIGHT, expand=1, fill='both')
@@ -166,7 +179,9 @@ class Interface(tk.Frame):
 		# Pack the file entries
 		input_file_entry.pack(side=tk.TOP, fill='both', padx=(10, 10))
 		output_file_entry.pack(side=tk.TOP, fill='both', padx=(10, 10))
+
 		# Pack the options
+
 		# Top
 		velocity_label.pack(side=tk.TOP, pady=(5, 5))
 		note_velocity_entry.pack(side=tk.TOP, pady=(0, 5))
@@ -175,16 +190,16 @@ class Interface(tk.Frame):
 		track_export_order_label.pack(side=tk.TOP, pady=(5, 5))
 		track_export_order_menu.pack(side=tk.TOP, pady=(0, 5))
 		# Bottom
-		channel_index_label.pack(side=tk.TOP, pady=(5, 5))
-		channel_index_checkbox.pack(side=tk.TOP, pady=(0, 5))
-		assign_instrument_label.pack(side=tk.TOP, pady=(5, 5))
-		assign_instrument_checkbox.pack(side=tk.TOP, pady=(0, 5))
+		create_channels_label.pack(side=tk.TOP, pady=(5, 5))
+		create_channels_checkbox.pack(side=tk.TOP, pady=(0, 5))
+		index_patches_label.pack(side=tk.TOP, pady=(5, 5))
+		index_patches_checkbox.pack(side=tk.TOP, pady=(0, 5))
 		normalize_tempo_label.pack(side=tk.TOP, pady=(5, 5))
 		normalize_tempo_entry.pack(side=tk.TOP, pady=(0, 5))
 
 	def convert_song(self):
 		# Parse the file
-		result = mp.parse(self.input_file_string.get(), self.output_file_string.get(), self.note_velocity_string.get(), self.aligning_margin_string.get(), self.track_export_order_string.get() == "Collated", self.normalize_tempo_string.get(), self.channel_index_int.get(), self.assign_instrument_int.get())
+		result = mp.parse(self.input_file_string.get(), self.output_file_string.get(), self.note_velocity_string.get(), self.aligning_margin_string.get(), self.track_export_order_string.get() == "Collated", self.normalize_tempo_string.get(), self.create_channels_int.get(), self.index_patches_int.get())
 		self.convert_button.config(bg="green" if not isinstance(result, Exception) else "red")
 		if isinstance(result, Exception):
 			tkinter.messagebox.showerror(title="Conversion Error", message=result)

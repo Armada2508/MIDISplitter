@@ -5,13 +5,12 @@ from decimal import Decimal, ROUND_UP, getcontext
 import copy
 import traceback
 
-def parse(input_file, output_file, new_velocity, align_margin, collated, normalized_tempo, index_output_tracks, assign_programs):
+def parse(input_file, output_file, new_velocity, align_margin, collated, normalized_tempo, create_channels, index_patches):
 
 	# TODO: Extract parts of parse function into other functions
 	# TODO: Options for merging tracks
 	# TODO: Align notes in different tracks
-	# TODO: Instrument issues, instrument button doesn't not assign instruments when not selected sometimes
-	# TODO: Fix Normalize tempo issue changing tempo
+	# TODO: Use channels to split tracks
 
 	# =====================
 	#    Initialization
@@ -27,6 +26,9 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# If the input file weren't given, return an exception
 		return Exception("Output file not specified")
 
+	# If index_patches is selected but not create_channels
+	if(index_patches and not create_channels):
+		return Exception("Patches cannot be indexed without creating channels")
 
 	# Create lists for storing notes and meta messages
 	track_notes = []
@@ -37,6 +39,12 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 
 	# Create a list to store which output tracks are only meta
 	meta_track_indices = []
+
+	# Create a dictionary to store the patch of each track
+	patch_dictionary = {}
+
+	# Create a list to store which indices tracks are split into
+	split_indices = []
 
 	# Try to load the input file
 	try:
@@ -80,10 +88,10 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		normalized_tempo = -1
 
 	# Cast the parameter to a boolean
-	index_output_tracks = bool(index_output_tracks)
+	create_channels = bool(create_channels)
 
 	# Cast the parameter to a boolean
-	assign_programs = bool(assign_programs)
+	index_patches = bool(index_patches)
 
 	# Create a dictionary to serve as a look up table for tempo
 	tempo_dict = {}
@@ -113,22 +121,46 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 
 			# If there is a change in time then add that to the absolute time
 			tick_time += msg.time
-			
+
 			# If we found a set_tempo message
 			if(msg.is_meta and msg.type == "set_tempo"):
 				# Add it to the look up table
 				tempo_dict[tick_time] = msg.tempo
+
 
 	# If there are no tempo messages
 	if(len(tempo_dict) == 0):
 		# Set the tempo to the default of 120bpm
 		tempo_dict[0] = mido.bpm2tempo(120)
 
+
 	# ==========================
 	#     Loop Through Tracks
 	# ==========================
 
 	for i, track in enumerate(input_song.tracks):
+
+		# ===================================
+		#    Program/Patch Change Messages
+		# ===================================
+		
+		# Create a time variable for storing absolute time and set it to 0
+		tick_time = 0
+
+		# Loop through all messages
+		for msg in track:
+			
+			# If there is a change in time then add that to the absolute time
+			tick_time += msg.time
+
+			# If this message is a patch change message
+			if(msg.type == "program_change"):
+				# If this channel doesn't have a dictionary entry
+				if not msg.channel in patch_dictionary:
+					# Make an entry
+					patch_dictionary[msg.channel] = {}
+				# Add a patch entry for the current channel at the current time
+				patch_dictionary[msg.channel][tick_time] = msg.program
 
 		# ==============================
 		#     Raw Message Extraction
@@ -137,19 +169,19 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# Store all meta messages in a list
 		meta_messages = [msg for msg in track if msg.is_meta]
 
-		# Create a time variable for storing absolute time and set it to 0
+		# Reset tick_time to zero
 		tick_time = 0
 
 		# Create a new empty list inside the main list for all tracks to append notes to
 		track_meta.append([])
+
 		# Create a new empty list inside the main list for all tracks to append meta messages to
 		track_notes.append([])
-
+		
 		# Loop through all meta messages
 		for msg in meta_messages:
 			# Append the message to the meta list for this track
 			track_meta[i].append(msg)
-
 
 		# ======================
 		#    Meta-only tracks
@@ -157,6 +189,17 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 
 		# If this is just a meta track
 		if(len(meta_messages) == len(track)):
+			# We'll first assume the split index is 0
+			split_index = 0
+			# If this is not the first track
+			if(i != 0):
+				# Get the indices the previous track was split into
+				previous_track = split_indices[len(split_indices) - 1]
+				# Set the split index as the previous maximum index plus one
+				split_index = previous_track[len(previous_track) - 1] + 1
+			# Append this index to the list
+			split_indices.append([split_index])
+			
 			# Add this track index to the list recording which tracks are only meta
 			meta_track_indices.append(len(output_tracks))
 			# Add sub-list where this track will be stored
@@ -203,6 +246,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 
 		# Loop through all notes in the track
 		for j, msg in enumerate(track):
+
 			# If this is the last message
 			if(j == len(track) - 1):
 				# Turn all notes off
@@ -215,8 +259,12 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			if(msg.type == "note_on"):
 				# If the note has a nonzero velocity
 				if(msg.velocity != 0):
-					# Create a new entry with the format of [TIME ON, TIME OFF, NOTE, VELOCITY, ALIGNED, TRACK INDEX]
-					track_notes[i].append([tick_time, None, msg.note, msg.velocity, 0, None])
+					# Create a new entry with the format of [TIME ON, TIME OFF, NOTE, VELOCITY, ALIGNED, TRACK INDEX, CHANNEL, PATCH]
+					track_notes[i].append([tick_time, None, msg.note, msg.velocity, 0, None, msg.channel, get_patch(patch_dictionary, msg.channel, tick_time)])
+					# If this channel doesn't already have a patch
+					if(patch_dictionary[msg.channel] == None):
+						# Assume that it is has a default patch of 1
+						patch_dictionary[msg.channel] = 1
 				# If the note has a zero velocity
 				else:
 					# Loop through the notes list backwards
@@ -377,7 +425,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 					overlap[4] = overlap[4] | 0b01
 
 		# If we should not normalize the tempo
-		if(normalized_tempo == -1):
+		if(normalized_tempo < 0):
 			# Convert the note time back to ticks with the original tempos
 			track_notes[i] = notes2tick(track_notes[i], tempo_dict, input_song.ticks_per_beat)
 		# If we should normalize the tempo
@@ -405,11 +453,33 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			track_index = get_track_index(note, track_notes[i])
 
 			# If we need more tracks, add them
-			for j in range(0, 1 + track_index - len(new_tracks)):
+			for j in range(1 + track_index - len(new_tracks)):
 				new_tracks.append([])
 
 			# Add the note to its track
 			new_tracks[track_index].append(note)
+
+		# ==================
+		#      Indexing
+		# ==================
+
+		# Create a new variable to store the starting index
+		initial_index = 0
+
+		# Loop through all split tracks in the output_tracks list
+		for split_tracks in output_tracks:
+			# Increase the starting index by the amount of split tracks
+			initial_index += len(split_tracks)
+
+		# If we are indexing patches
+		if(index_patches):
+			# For every new track
+			for i, new_track in enumerate(new_tracks):
+				# Loop through the notes
+				for note in new_track:
+					# Set the patch to a clamped index value between 0 and 127
+					note[7] = min(max(0, initial_index + i), 127)
+
 
 		# ======================
 		#      Track Output
@@ -431,14 +501,34 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			# Loop through all of the notes in the new track
 			for note in new_track:
 				# Add a note_on message for the note
-				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time)))
+				finished_track.append(Message("note_on", note=note[2], velocity=new_velocity if new_velocity >= 0 else note[3], time=(note[0] - tick_time), channel=note[6]))
 				# Add a note_off message for the note
-				finished_track.append(Message("note_off", note=note[2], velocity=0, time=(note[1] - note[0])))
+				finished_track.append(Message("note_off", note=note[2], velocity=0, time=(note[1] - note[0]), channel=note[6]))
 				# Set the absolute time counter to the last message added(the note_off message)
 				tick_time = note[1]
 			
 			# Append the finished track to the list of tracks to be output
 			output_tracks[i].append(finished_track)
+		
+		# We'll first assume the starting index is 0
+		starting_index = 0
+		# If this is not the first track
+		if(i != 0):
+			# Get the indices the previous track was split into
+			previous_track = split_indices[len(split_indices) - 1]
+			
+			# Set the starting index as the previous maximum index plus one
+			starting_index = previous_track[len(previous_track) - 1] + 1
+		# Append a sub-list to store the indices this track is split into
+		split_indices.append([])
+		# Loop through the number of tracks this track will be split into
+		for j in range(len(output_tracks[i])):
+			# Add the indices to the sub-list
+			split_indices[i].append(starting_index + j)
+
+	# =======================
+	#     Song Processing
+	# =======================
 
 	# If we are collating the output
 	if(collated):
@@ -449,7 +539,7 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			# If this track was split more times, make it the new maximum
 			max_split = max(max_split, len(split_track))
 		# Loop through the sub-lists
-		for i in range(0, max_split):
+		for i in range(max_split):
 			# Loop through the initial(outer) lists
 			for split_track in output_tracks:
 				# If we have already appended all split tracks on this track
@@ -467,39 +557,12 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			# Add track to output file
 			output_song.tracks.append(track)
 
-	# If we are indexing the output tracks
-	if(index_output_tracks):
-		# Loop through all the tracks
-		for i, track in enumerate(output_song.tracks):
-			# Start off with a channel index of the current track index
-			channel_index = i
-			# For every meta only track before it, subtract one
-			for index in meta_track_indices:
-				if index < i:
-					channel_index -= 1
-			# Set the channel of each of the tracks
-			output_song.tracks[i] = set_channel(track, channel_index)
-	
-	# If we are assigning the programs on the output tracks
-	if(assign_programs):
-		# Loop through all the tracks
-		for i, track in enumerate(output_song.tracks):
-			# Start off with a program index of the current track index
-			program_index = i
-			# For every meta only track before it, subtract one
-			for index in meta_track_indices:
-				if index < i:
-					program_index -= 1
-			# Set the program of each of the track
-			output_song.tracks[i] = set_program(track, program_index, program_index)
-
 	# If we should normalize the tempo
 	if(normalized_tempo > 0):
 		# Set the tempo at the beginning of the song
 		output_song.tracks[0].insert(0, MetaMessage("set_tempo", tempo=normalized_tempo))
 	# If we are not normalizing the tempo
 	else:
-		# TODO: You shouldn't need to make a new meta track, you should be able to add set_tempo messages to a note track if there isn't a meta-only track
 
 		# If there are no meta only tracks
 		if(len(meta_track_indices) == 0):
@@ -507,8 +570,10 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 			output_song.tracks.insert(0, MidiTrack())
 			# Add its index to the list of meta only tracks
 			meta_track_indices.append(0)
+
 		# Create a list to store tempos in
 		tempos = []
+
 		# Convert tempo_dict to a 2d list
 		for time in tempo_dict:
 			tempos.append([time, tempo_dict[time]])
@@ -526,12 +591,11 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		for msg in output_song.tracks[meta_track_indices[0]]:
 			total_time += msg.time
 		
-		# Create a new variable to store if the firest meta track is empty
+		# Create a new variable to store if the first meta track is empty
 		first_meta_empty = len(output_song.tracks[meta_track_indices[0]]) == 0
 
-
 		# Loop through the first meta track to which we will add tempo messages(which will be the original length + # of tempo messages when done)
-		for i in range(len(output_song.tracks[meta_track_indices[0]]) + len(list(filter(lambda e: e[0] <= total_time, tempos)))):
+		for i in range(len(output_song.tracks[meta_track_indices[0]]) + len(tempos)):
 			# If we addded all the tempos
 			if(tempo_index == len(tempos)):
 				# Stop adding them
@@ -572,6 +636,39 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 				output_song.tracks[meta_track_indices[0]].append(MetaMessage("set_tempo", tempo=tempos[i][1], time=tempos[i][0]-tick_time))
 				# Set tick_time
 				tick_time = tempos[i][0]
+
+	# If we are assigning patches on the output tracks
+	if(index_patches):
+		# Loop through all the tracks
+		for i, track in enumerate(output_song.tracks):
+			# Start off with a patch index of the current track index
+			patch_index = i
+			# For every meta only track before it, subtract one
+			for index in meta_track_indices:
+				if index < i:
+					patch_index -= 1
+			# Set the patch of each of the track
+			output_song.tracks[i] = set_track_patch(track, patch_index, patch_index)
+
+					
+	# If we are creating output channels
+	if(create_channels):
+		# Loop through all the tracks
+		for i, track in enumerate(output_song.tracks):
+			# Start off with a channel index of the current track index
+			channel_index = i
+			# For every meta only track before it, subtract one
+			for index in meta_track_indices:
+				if index < i:
+					channel_index -= 1
+			# Set the channel of each of the tracks
+			output_song.tracks[i] = set_channel(track, channel_index)
+	
+
+	# ====================
+	#     Song Output
+	# ====================
+
 
 	# Try to save the song
 	try:
@@ -635,26 +732,31 @@ def get_track_index(note, notes):
 	# Return it
 	return track_index
 
-# Find the tempo from a dictionary from the time in ticks
+# Find the tempo at a specific time with dictionary of tempos
 def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 	# Create a list to store the tempos at different times
 	tempos = []
+
 	# Loop through the tempos in the dictionary
-	for time in d:
+	for t, tempo in d.items():
 		# Add each tempo to the list
-		tempos.append([time, d[time]])
+		tempos.append([t, tempo])
+
 	# If there are no items
 	if(len(tempos) == 0):
-		# Return 500000
+		# Return the default 120 BPM
 		return 500000
+
+	# If we haven't passed the first tempo
+	if(time < tempos[0][0]):
+		# Return the default 120 BPM
+		return 500000
+
 	# If there is only one item
 	if(len(tempos) == 1):
-		# If we've passed the tempo
-		if(time >= tempos[0][0]):
-			# Return it
-			return tempos[0][1]
-		# Otherwise return the default 120 BPM
-		return 500000
+		# Return it(we've passed it)
+		return tempos[0][1]
+
 	# Sort the tempos by time
 	tempos.sort(key=lambda e: e[0])
 	# If time is in seconds and not ticks
@@ -663,10 +765,12 @@ def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 		if(ticks_per_beat == 0):
 			# Throw an error
 			raise Exception("Error: ticks_per_beat cannot be 0")
+		# Create a new list to store the converted tick times
+		tempo_times = []
 		# Create a variable to store time in
 		total_time = 0
 		# Loop through the tempos
-		for i in range(0, len(tempos)):
+		for i in range(len(tempos)):
 			# If this is the first loop iteration
 			if(i == 0):
 				# Assume the tempo is initially 120 BPM if it is not specified at the beginning
@@ -675,16 +779,42 @@ def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 			else:
 				# Add the difference in time to the total time
 				total_time += mido.tick2second(tempos[i][0] - tempos[i - 1][0], ticks_per_beat, tempos[i - 1][1])
-			# Set the tempo's time to the calculated time
-			tempos[i][0] = total_time
-	# Loop through the tempos in the list
-	for i in range(0, len(tempos) - 1):
-		# If have passed this tempo but not the next tempo
+			# Record the tempo's time
+			tempo_times.append(total_time)
+		# Loop through the tempos
+		for i in range(len(tempos)):
+			# Set the new end times
+			tempos[i][0] = tempo_times[i]
+
+		
+	# Loop through the tempos in the list(until one index before the last element)
+	for i in range(len(tempos) - 1):
+		# If we have passed this tempo but not the next tempo
 		if(time >= tempos[i][0] and time < tempos[i + 1][0]):
 			# Return it
 			return tempos[i][1]
+
 	# If we've passed all of them, return the last one
 	return tempos[len(tempos) - 1][1]
+
+def get_patch(patch_dict, channel, time):
+	# Set the default patch to time 0 and patch 0
+	last_patch = (0, 0)
+	# Loop through all patches for this note's channel
+	for patch_time in patch_dict[channel]:
+		# If the patch starts before the note
+		if(patch_time < time):
+			# Set last_patch equal to (time, patch #)
+			last_patch = (patch_time, patch_dict[channel][patch_time])
+			# Skip this loop iteration
+			continue
+		# If the note is before the past, but after the last
+		if(time < patch_time and last_patch[0] < time):
+			# Return the last patch
+			return last_patch[1]
+	# If the note was after all patches, set it to the last patch
+	return last_patch[1]
+
 
 # Create a more aptly named method that converts the note time from ticks to seconds
 def notes2second(input_notes, tempo_dict, ticks_per_beat):
@@ -700,8 +830,18 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Create a copy of the notes list
 	notes = copy.deepcopy(input_notes)
 
-	# Round up if necessary
+	# Round up
 	getcontext().rounding = ROUND_UP
+
+	# Use 12 significant digits
+	getcontext().prec = 12
+
+	# Store a list of times that the tempo changes
+	tempo_changes = [[time, -1] for time in tempo_dict.keys()]
+
+	# Add the tempo change times to the notes list so we know when to change the tempo
+	for time in tempo_changes:
+		notes.append(time)
 
 	# Create a variable to keep track of the current time in the output units
 	total_time = Decimal(0)
@@ -709,18 +849,62 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Create a variable to keep track of the last time in the input units 
 	last_time = Decimal(0)
 
+	# Create a variable to store the current tempo
+	current_tempo = get_tempo(tempo_dict, 0)
+	
+	# If we are converting to ticks we have to convert the tempo times to seconds
+	if(not to_second):
+		# Loop through all of the tempo changes
+		for i in range(len(tempo_changes)):
+			# Calculate the current tempo
+			current_tempo = get_tempo(tempo_dict, total_time)
+			# If this is the first loop iteration
+			if(i == 0):
+				# Use the default tempo of 120 BPM to calculate the time before the first tempo message
+				total_time += tick2second(tempo_changes[i][0], ticks_per_beat, current_tempo)
+			# If this is not the first loop iteration
+			else:
+				# Calculate the amount of time since the previous tempo message and convert it
+				total_time += tick2second(tempo_changes[i][0] - last_time, ticks_per_beat, current_tempo)
+			# Update last_time
+			last_time = Decimal(tempo_changes[i][0])
+			# Update the tempo message's time
+			tempo_changes[i][0] = total_time
+	
+	# Re-sort the list so that the tempo change times are at the right times
+	notes.sort(key=lambda e: (e[0], e[1]))
+
+	# Reset the variable storing the current tempo
+	current_tempo = get_tempo(tempo_dict, 0)
+	
+	# Reset the variable to keep track of the current time in the output units
+	total_time = Decimal(0)
+
+	# Reset the variable to keep track of the last time in the input units 
+	last_time = Decimal(0)
+
 	# Convert note start time
 	for note in notes:
 		# If we are converting to seconds
 		if(to_second):
 			# Add to the converted time to the total time
-			total_time += tick2second(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0]))
+			total_time += tick2second(note[0] - last_time, ticks_per_beat, current_tempo)
 		# Otherwise
 		else:
-			# Round the output and cast it to an int, then increment total_time
-			total_time += second2tick(note[0] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat))
+			# Add to the converted time to the total time
+			total_time += second2tick(note[0] - last_time, ticks_per_beat, current_tempo)
+		# If this is a tempo message
+		if(note[1] == -1):
+			# If we are converting to seconds
+			if(to_second):
+				# Set the tempo
+				current_tempo = get_tempo(tempo_dict, note[0])
+			# If we are converting to ticks
+			else:
+				# Set the tempo
+				current_tempo = get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat)
 		# Set last_time to the value that the note had
-		last_time = note[0]
+		last_time = Decimal(note[0])
 		# If we are converting to seconds
 		if(to_second):
 			# Set the note's start time to the current time in the new unit
@@ -730,24 +914,78 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 			# Cast the time to an int, then set the note's start time to the current time in the new unit
 			note[0] = int(total_time)
 
+	# Delete the tempo messages
+	notes = [note for note in notes if note[1] >= 0]
+	
+	# Store a list of times that the tempo changes
+	tempo_changes = [[-1, time] for time in tempo_dict.keys()]
+
+	# Reset the variable storing the current tempo
+	current_tempo = get_tempo(tempo_dict, 0)
+
+	# Reset the variable to keep track of the current time in the output units
+	total_time = Decimal(0)
+
+	# Reset the variable to keep track of the last time in the input units 
+	last_time = Decimal(0)
+	
+	# If we are converting to ticks we have to convert the tempo times to seconds
+	if(not to_second):
+		# Loop through all of the tempo changes
+		for i in range(len(tempo_changes)):
+			# Calculate the current tempo
+			current_tempo = get_tempo(tempo_dict, total_time)
+			# If this is the first loop iteration
+			if(i == 0):
+				# Use the default tempo of 120 BPM to calculate the time before the first tempo message
+				total_time += tick2second(tempo_changes[i][1], ticks_per_beat, current_tempo)
+			# If this is not the first loop iteration
+			else:
+				# Calculate the amount of time since the previous tempo message and convert it
+				total_time += tick2second(tempo_changes[i][1] - last_time, ticks_per_beat, current_tempo)
+			# Update last_time
+			last_time = Decimal(tempo_changes[i][1])
+			# Update the tempo message's time
+			tempo_changes[i][1] = total_time
+
+	# Add the tempo change times to the notes list so we know when to change the tempo
+	for time in tempo_changes:
+		notes.append(time)
+
+	# Re-sort the list so that the tempo change times are at the right times
+	notes.sort(key=lambda e: (e[1], e[0]))
+	
 	# Reset the variable to keep track of the current time in the output units
 	total_time = Decimal(0)
 
 	# Reset the variable to keep track of the last time in the input units 
 	last_time = Decimal(0)
 
+	# Reset the variable storing the current tempo
+	current_tempo = get_tempo(tempo_dict, 0)
+
 	# Convert note end time
 	for note in notes:
 		# If we are converting to seconds
 		if(to_second):
 			# Add to the converted time to the total time
-			total_time += tick2second(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1]))
+			total_time += tick2second(note[1] - last_time, ticks_per_beat, current_tempo)
 		# Otherwise
 		else:
-			# Round the output and cast it to an int, then increment total_time
-			total_time += second2tick(note[1] - last_time, ticks_per_beat, get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat))
+			# Add to the converted time to the total time
+			total_time += second2tick(note[1] - last_time, ticks_per_beat, current_tempo)
+		# If this is a tempo message
+		if(note[0] == -1):
+			# If we are converting to seconds
+			if(to_second):
+				# Set the tempo
+				current_tempo = get_tempo(tempo_dict, note[1])
+			# If we are converting to ticks
+			else:
+				# Set the tempo
+				current_tempo = get_tempo(tempo_dict, note[1], seconds=True, ticks_per_beat=ticks_per_beat)
 		# Set last_time to the value that the note had
-		last_time = note[1]
+		last_time = Decimal(note[1])
 		# If we are converting to seconds
 		if(to_second):
 			# Set the note's start time to the current time in the new unit
@@ -757,6 +995,12 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 			# Cast the time to an int, then set the note's start time to the current time in the new unit
 			note[1] = int(total_time)
 
+	# Delete the tempo messages
+	notes = [note for note in notes if note[0] >= 0]
+	
+	# Re-sort the notes
+	notes.sort(key=lambda e: e[0])
+
 	# Return the notes list
 	return notes
 
@@ -764,7 +1008,7 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 def tick2second(tick, ticks_per_beat, tempo):
 	# Conversion factor from ticks to seconds
     scale = Decimal(tempo) * Decimal(1e-6) / Decimal(ticks_per_beat)
-	# Multiple by the scaling factor
+	# Multiply by the scaling factor
     return Decimal(tick) * scale
 
 # Redefine the second2tick method from mido to use decimals instead of floats
@@ -791,19 +1035,19 @@ def set_channel(track, channel_index):
 	# Return the track
 	return track
 
-# Set the program of a track
-def set_program(track, program_index, channel_index):
+# Set the patch of a track
+def set_track_patch(track, patch_index, channel_index):
 	# If the channel_index is out of range
 	if(channel_index < 0 or channel_index > 15):
 		# Force it into range
 		channel_index = min(max(channel_index, 0), 15)
-	# If the program index is out of range
-	if(program_index < 0 or program_index > 127):
+	# If the patch index is out of range
+	if(patch_index < 0 or patch_index > 127):
 		# Force it into range
 		channel = min(max(channel, 0), 127)
-	# Remove all program change messages
+	# Remove all patch change messages
 	track = [msg for msg in track if not msg.type == "program_change"]
-	# Insert a program change message at the start of the track
-	track.insert(1, Message("program_change", channel=channel_index, program=program_index))
+	# Insert a patch change message at the start of the track
+	track.insert(1, Message("program_change", channel=channel_index, program=patch_index))
 	# Return the track
 	return track
