@@ -147,8 +147,21 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# Create a time variable for storing absolute time and set it to 0
 		tick_time = 0
 
+		# Create a list of channels
+		channel_list = []
+
 		# Loop through all messages
 		for msg in track:
+
+			# If this message is not a meta message
+			if not msg.is_meta:
+				try:
+					# If this message's channel isn't in the no_patches dictionary
+					if not msg.channel in channel_list:
+						# Add it
+						channel_list.append(msg.channel)
+				except Exception:
+					pass
 			
 			# If there is a change in time then add that to the absolute time
 			tick_time += msg.time
@@ -161,6 +174,18 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 					patch_dictionary[msg.channel] = {}
 				# Add a patch entry for the current channel at the current time
 				patch_dictionary[msg.channel][tick_time] = msg.program
+
+		# Loop through all channels
+		for channel in channel_list:
+			# If this channel doesn't have a dictionary entry
+			if not channel in patch_dictionary:
+				# Make an entry
+				patch_dictionary[channel] = {}
+			
+			# If this channel doesn't have a patch at the beginning
+			if not 0 in patch_dictionary[channel]:
+				# Add the default patch at the beginning
+				patch_dictionary[channel][0] = 0
 
 		# ==============================
 		#     Raw Message Extraction
@@ -474,12 +499,11 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# If we are indexing patches
 		if(index_patches):
 			# For every new track
-			for i, new_track in enumerate(new_tracks):
+			for j, new_track in enumerate(new_tracks):
 				# Loop through the notes
 				for note in new_track:
 					# Set the patch to a clamped index value between 0 and 127
-					note[7] = min(max(0, initial_index + i), 127)
-
+					note[7] = min(max(0, initial_index + j), 127)
 
 		# ======================
 		#      Track Output
@@ -488,7 +512,10 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 		# Add parent list where split tracks from this track will be stored
 		output_tracks.append([])
 
+		
+
 		for j, new_track in enumerate(new_tracks):
+
 			# Create a new track to append to the MIDI file that will be exported
 			finished_track = MidiTrack()
 
@@ -506,7 +533,35 @@ def parse(input_file, output_file, new_velocity, align_margin, collated, normali
 				finished_track.append(Message("note_off", note=note[2], velocity=0, time=(note[1] - note[0]), channel=note[6]))
 				# Set the absolute time counter to the last message added(the note_off message)
 				tick_time = note[1]
-			
+
+			# Use tick_time to represent absolute time and set it to 0
+			tick_time = 0
+
+			# Create a variable to store the previous patch
+			last_patch = None
+
+			# If we are creating channels and not indexing patches
+			if(create_channels and not index_patches):
+				# We can now reasonably make the assumption that each channel has a one-to-one correspondence with each track
+
+				# Loop through all messages
+				for k, msg in enumerate(finished_track):
+					# Update tick_time
+					tick_time += msg.time
+					# If this is a meta message
+					if(msg.is_meta):
+						# Skip this loop iteration
+						continue
+					# If the patch has changed
+					if(not get_patch(patch_dictionary, msg.channel, tick_time) == last_patch):
+						# Insert a patch change message
+						finished_track.insert(k, Message("program_change", channel=msg.channel, program=get_patch(patch_dictionary, msg.channel, tick_time), time=(tick_time-get_patch_time(patch_dictionary, msg.channel, tick_time))))
+						# Update the preceding note's time
+						msg.time -= (tick_time-get_patch_time(patch_dictionary, msg.channel, tick_time))
+
+					# Update last_patch
+					last_patch = get_patch(patch_dictionary, msg.channel, tick_time)
+
 			# Append the finished track to the list of tracks to be output
 			output_tracks[i].append(finished_track)
 		
@@ -800,6 +855,12 @@ def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 def get_patch(patch_dict, channel, time):
 	# Set the default patch to time 0 and patch 0
 	last_patch = (0, 0)
+
+	# If there are no patch messages
+	if len(patch_dict) == 0:
+		# Set it to the default patch of 0
+		return last_patch[1]
+
 	# Loop through all patches for this note's channel
 	for patch_time in patch_dict[channel]:
 		# If the patch starts before the note
@@ -814,6 +875,31 @@ def get_patch(patch_dict, channel, time):
 			return last_patch[1]
 	# If the note was after all patches, set it to the last patch
 	return last_patch[1]
+
+
+def get_patch_time(patch_dict, channel, time):
+	# Set the default patch to time 0 and patch 0
+	last_patch = (0, 0)
+
+	# If there are no patch messages
+	if len(patch_dict) == 0:
+		# Return the default time of 0
+		return last_patch[0]
+
+	# Loop through all patches for this note's channel
+	for patch_time in patch_dict[channel]:
+		# If the patch starts before the note
+		if(patch_time < time):
+			# Set last_patch equal to (time, patch #)
+			last_patch = (patch_time, patch_dict[channel][patch_time])
+			# Skip this loop iteration
+			continue
+		# If the note is before the past, but after the last
+		if(time < patch_time and last_patch[0] < time):
+			# Return the last patch time
+			return last_patch[0]
+	# If the note was after all patches, return the last patch time
+	return last_patch[0]
 
 
 # Create a more aptly named method that converts the note time from ticks to seconds
@@ -1036,18 +1122,14 @@ def set_channel(track, channel_index):
 	return track
 
 # Set the patch of a track
-def set_track_patch(track, patch_index, channel_index):
-	# If the channel_index is out of range
-	if(channel_index < 0 or channel_index > 15):
-		# Force it into range
-		channel_index = min(max(channel_index, 0), 15)
-	# If the patch index is out of range
-	if(patch_index < 0 or patch_index > 127):
-		# Force it into range
-		channel = min(max(channel, 0), 127)
+def set_track_patch(track, patch_index, channel):
+	# Force channel into range
+	channel = min(max(channel, 0), 15)
+	# Force the patch number into range
+	patch_index = min(max(patch_index, 0), 127)
 	# Remove all patch change messages
 	track = [msg for msg in track if not msg.type == "program_change"]
 	# Insert a patch change message at the start of the track
-	track.insert(1, Message("program_change", channel=channel_index, program=patch_index))
+	track.insert(1, Message("program_change", channel=channel, program=patch_index))
 	# Return the track
 	return track
