@@ -817,9 +817,9 @@ def get_tempo(d, time, ticks_per_beat=0, seconds=False):
 	# If time is in seconds and not ticks
 	if(seconds):
 		# If ticks_per_beat was not specified
-		if(ticks_per_beat == 0):
+		if(ticks_per_beat < 1):
 			# Throw an error
-			raise Exception("Error: ticks_per_beat cannot be 0")
+			raise Exception("Error: ticks_per_beat cannot be less than 1")
 		# Create a new list to store the converted tick times
 		tempo_times = []
 		# Create a variable to store time in
@@ -935,18 +935,16 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	# Create a variable to keep track of the last time in the input units 
 	last_time = Decimal(0)
 
-	# Create a variable to store the current tempo
+	# Create a variable to store the current tempo and set it at the starting tempo
 	current_tempo = get_tempo(tempo_dict, 0)
 	
-	# If we are converting to ticks we have to convert the tempo times to seconds
+	# If we are converting from seconds we have to convert the tempo times to seconds
 	if(not to_second):
 		# Loop through all of the tempo changes
 		for i in range(len(tempo_changes)):
-			# Calculate the current tempo
-			current_tempo = get_tempo(tempo_dict, total_time)
 			# If this is the first loop iteration
 			if(i == 0):
-				# Use the default tempo of 120 BPM to calculate the time before the first tempo message
+				# Calculate the time before the first tempo message
 				total_time += tick2second(tempo_changes[i][0], ticks_per_beat, current_tempo)
 			# If this is not the first loop iteration
 			else:
@@ -954,8 +952,11 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 				total_time += tick2second(tempo_changes[i][0] - last_time, ticks_per_beat, current_tempo)
 			# Update last_time
 			last_time = Decimal(tempo_changes[i][0])
+			# Calculate the tempo for the next loop iteration
+			current_tempo = get_tempo(tempo_dict, tempo_changes[i][0])
 			# Update the tempo message's time
 			tempo_changes[i][0] = total_time
+
 	
 	# Re-sort the list so that the tempo change times are at the right times
 	notes.sort(key=lambda e: (e[0], e[1]))
@@ -989,6 +990,7 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 			else:
 				# Set the tempo
 				current_tempo = get_tempo(tempo_dict, note[0], seconds=True, ticks_per_beat=ticks_per_beat)
+
 		# Set last_time to the value that the note had
 		last_time = Decimal(note[0])
 		# If we are converting to seconds
@@ -1019,8 +1021,6 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 	if(not to_second):
 		# Loop through all of the tempo changes
 		for i in range(len(tempo_changes)):
-			# Calculate the current tempo
-			current_tempo = get_tempo(tempo_dict, total_time)
 			# If this is the first loop iteration
 			if(i == 0):
 				# Use the default tempo of 120 BPM to calculate the time before the first tempo message
@@ -1031,6 +1031,8 @@ def convert_note_time(input_notes, tempo_dict, ticks_per_beat, to_second):
 				total_time += tick2second(tempo_changes[i][1] - last_time, ticks_per_beat, current_tempo)
 			# Update last_time
 			last_time = Decimal(tempo_changes[i][1])
+			# Calculate the tempo for the next loop iteration
+			current_tempo = get_tempo(tempo_dict, tempo_changes[i][1])
 			# Update the tempo message's time
 			tempo_changes[i][1] = total_time
 
